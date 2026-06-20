@@ -877,7 +877,7 @@ async def list_enquiries(status: Optional[str] = None,
                          user: dict = Depends(require_roles("tenant_admin", "manager", "employee", "customer"))):
     q: Dict[str, Any] = {"tenant_id": user["tid"]}
     if user["role"] == "employee":
-        q["assigned_employee_id"] = user["sub"]
+        q["$or"] = [{"assigned_employee_id": user["sub"]}, {"created_by": user["sub"]}]
     elif user["role"] == "customer":
         q["created_by"] = user["sub"]
     elif assigned_employee_id:
