@@ -1,0 +1,132 @@
+{
+  "theme": "Light",
+  "archetype": "1 (Organic & Earthy)",
+  "vibe": "Accessible, highly functional, trustworthy, earthy-modern. Designed to bridge the gap between robust enterprise dashboards and accessible rural-user mobile PWAs.",
+  "colors": {
+    "light": {
+      "background": "#F9F8F6",
+      "surface": "#FFFFFF",
+      "primary": "var(--primary, #2C5E43)",
+      "primary_hover": "var(--primary-hover, #1e422f)",
+      "secondary": "var(--secondary, #D35400)",
+      "secondary_hover": "var(--secondary-hover, #a84300)",
+      "accent": "#E67E22",
+      "text_primary": "#1C2833",
+      "text_secondary": "#566573",
+      "border": "#E5E7EB",
+      "success": "#27AE60",
+      "warning": "#F1C40F",
+      "error": "#E74C3C",
+      "info": "#2980B9"
+    },
+    "dark": {
+      "background": "#121212",
+      "surface": "#1E1E1E",
+      "primary": "var(--primary, #4ade80)",
+      "primary_hover": "var(--primary-hover, #22c55e)",
+      "secondary": "var(--secondary, #fb923c)",
+      "secondary_hover": "var(--secondary-hover, #f97316)",
+      "accent": "#f59e0b",
+      "text_primary": "#F3F4F6",
+      "text_secondary": "#9CA3AF",
+      "border": "#374151",
+      "success": "#22C55E",
+      "warning": "#F59E0B",
+      "error": "#EF4444",
+      "info": "#3B82F6"
+    },
+    "white_label_instructions": "Tenant specific theming MUST be implemented via CSS variables dynamically injected into the root container of the Tenant App, e.g., style={{ '--primary': tenant.theme.primary, '--secondary': tenant.theme.secondary }}. Use Tailwind's config to map these vars."
+  },
+  "typography": {
+    "heading_font": "Outfit",
+    "body_font": "Work Sans",
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl font-bold tracking-tight text-text-primary",
+      "h2": "text-2xl sm:text-3xl font-semibold tracking-tight text-text-primary",
+      "h3": "text-xl sm:text-2xl font-medium text-text-primary",
+      "h4": "text-lg sm:text-xl font-medium text-text-primary",
+      "body": "text-base text-text-secondary leading-relaxed",
+      "label": "text-sm font-medium tracking-[0.05em] uppercase text-text-secondary",
+      "small": "text-sm text-text-secondary"
+    },
+    "notes": "Work Sans is chosen for maximum legibility of numbers and data, crucial for rural users and data-heavy manager dashboards. Outfit provides a modern, approachable face to the brand headers."
+  },
+  "spacing_and_layout": {
+    "dashboard_grid": "grid-cols-1 md:grid-cols-4 gap-6. Sidebars col-span-1, Main content col-span-3.",
+    "pwa_mobile_grid": "Grid mode 'TETRIS'. 9-card menu uses grid-cols-2 gap-4. High priority actions (Check-in/out) take col-span-2 row-span-1.",
+    "container_padding": "p-4 sm:p-6 lg:p-8",
+    "card_padding": "p-5 sm:p-6",
+    "tap_targets": "Minimum 48px height for all interactive elements (buttons, inputs, list items) to accommodate rural users on mobile devices."
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-primary text-white hover:bg-primary-hover rounded-lg px-6 py-3 font-medium transition-colors shadow-sm",
+      "secondary": "bg-secondary text-white hover:bg-secondary-hover rounded-lg px-6 py-3 font-medium transition-colors shadow-sm",
+      "outline": "border-2 border-primary text-primary hover:bg-primary/5 rounded-lg px-6 py-3 font-medium transition-colors",
+      "ghost": "text-text-secondary hover:bg-stone-100 hover:text-text-primary rounded-lg px-4 py-2 transition-colors"
+    },
+    "cards": {
+      "dashboard_widget": "bg-surface rounded-xl border border-border shadow-sm p-6 flex flex-col",
+      "pwa_action_card": "bg-surface rounded-2xl border border-border shadow-md p-4 flex flex-col items-center justify-center text-center active:scale-95 transition-transform"
+    },
+    "inputs": {
+      "text": "w-full h-12 rounded-lg border border-border bg-surface px-4 text-base focus:ring-2 focus:ring-primary focus:border-transparent transition-all",
+      "select": "w-full h-12 rounded-lg border border-border bg-surface px-4 text-base focus:ring-2 focus:ring-primary focus:border-transparent transition-all",
+      "label": "block text-sm font-medium text-text-primary mb-2"
+    },
+    "maps": {
+      "library": "Leaflet + React-Leaflet",
+      "style": "Use OpenStreetMap tiles. Round corners of map container (rounded-xl) with overflow-hidden and border border-border."
+    },
+    "navigation": {
+      "dashboard_sidebar": "w-64 bg-surface border-r border-border h-screen sticky top-0 flex flex-col",
+      "pwa_bottom_nav": "fixed bottom-0 w-full bg-surface border-t border-border h-16 flex justify-around items-center pb-safe-area shadow-[0_-4px_20px_rgba(0,0,0,0.05)] z-50"
+    }
+  },
+  "surfaces": {
+    "Super_Admin_Dashboard": "High density, Desktop-first. Focus on table grids for tenants, multi-axis charts for global analytics. 'Control Room' mode.",
+    "Tenant_Admin_Dashboard": "Desktop-first. Configuration heavy. Includes a visual 'Live Preview' when changing branding colors/labels.",
+    "Manager_Dashboard": "Tablet/Desktop friendly. Focus on Leaflet GPS maps, attendance heatmaps, and performance leaderboards.",
+    "Employee_Mobile_PWA": "Mobile-first, Low-end Android friendly. 'Bento' style 9-card layout. Huge tap targets. Minimal text, reliant on Lucide icons (e.g., MapPin, Camera, FileText).",
+    "Customer_Dealer_PWA": "Mobile-first e-commerce vibe. Branded exactly to tenant specifications. Large product images, bottom fixed 'Cart/Checkout' bar."
+  },
+  "icons_and_assets": {
+    "library": "lucide-react",
+    "usage": "Use stroke-width 1.5 for larger icons, 2 for smaller icons. Do not use emojis.",
+    "image_urls": [
+      {
+        "category": "Hero / Login Background (Agri focus)",
+        "url": "https://images.unsplash.com/photo-1528280469494-bc0421abebab?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwyfHxmaWVsZCUyMHdvcmtlciUyMGFncmljdWx0dXJlJTIwc3Vuc2V0fGVufDB8fHx8MTc4MTk1MjMyM3ww&ixlib=rb-4.1.0&q=85",
+        "description": "Man standing on grass field at sunset. Use with bg-black/40 overlay."
+      },
+      {
+        "category": "Hero / Login Background (FMCG focus)",
+        "url": "https://images.pexels.com/photos/4483774/pexels-photo-4483774.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Worker carrying a box in an organized warehouse. Good alternative for FMCG tenants."
+      },
+      {
+        "category": "Placeholder Logo",
+        "url": "https://images.pexels.com/photos/21898300/pexels-photo-21898300.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Clean simple placeholder for Tenant branding if no logo uploaded."
+      }
+    ]
+  },
+  "accessibility_and_testing": {
+    "contrast": "Ensure primary color provides 4.5:1 contrast against white for buttons. Add text-shadow on hero image text.",
+    "i18n": "Use a clear Earth globe icon (lucide-react <Globe />) for language switcher. Keys should update instantly across UI.",
+    "test_attributes": "All interactive elements MUST include data-testid. e.g., data-testid='employee-checkin-btn'."
+  },
+  "motion": {
+    "transitions": "transition-all duration-200 ease-in-out",
+    "pwa_interactions": "active:scale-[0.98] on PWA action cards for tactile feedback.",
+    "modals": "Slide up from bottom for PWA (Sheet style), center fade-in for Dashboards."
+  },
+  "instructions_to_main_agent": [
+    "Install lucide-react, react-leaflet, leaflet for map functionalities.",
+    "Set up Tailwind CSS variables mapping in tailwind.config.js for dynamic tenant branding (primary and secondary colors).",
+    "Build the Employee PWA Dashboard using the 'Tetris' bento grid rules. Check-In/Check-Out must be a dominant full-width card at the top.",
+    "Integrate i18n placeholders effectively, keeping text concise for rural low-end Androids.",
+    "Ensure all Shadcn components (Inputs, Selects) use h-12 sizes for mobile PWA views to satisfy the 'large tap target' requirement.",
+    "Apply data-testid to every button, form input, and key metric card."
+  ]
+}
