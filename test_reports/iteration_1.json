@@ -1,0 +1,36 @@
+{
+  "summary": "First end-to-end test of FieldCRM SaaS MVP. Backend: 23/24 pytest cases pass (95.8%). Frontend: landing, tenant admin login, dashboard, branding, products, employee PWA, customer PWA + full order flow all working. Multi-tenant auth (super_admin/tenant_admin/manager/employee/customer) with mock OTP, JWT, tenant isolation, role isolation, analytics, CSV export, notifications all functional.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/enquiries (employee role)", "issue": "Filter uses assigned_employee_id==user.sub. When an employee creates an enquiry without explicitly setting assigned_employee_id, they cannot see it back in their list. Consider including created_by==user.sub in the OR clause for employees so a self-created enquiry is visible to its creator."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Customer Catalogue & Tenant Admin Products grid", "issues": ["Product cards show placeholder letter avatars (B, C, G, P, S) instead of actual product images. Seed data has no image_path. Consider seeding real product images or generated thumbnails for a more polished demo."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_fieldcrm.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "[MINOR] Enquiry visibility for employee creators — extend GET /api/enquiries filter to include {created_by: user.sub} OR {assigned_employee_id: user.sub} for employees so an enquiry they raised themselves shows up.",
+    "[DESIGN] Add product image seeds in /app/backend/seed.py (or generate placeholders server-side) so product cards show images instead of letter avatars."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1236 lines — consider splitting into routers (auth, super, tenant, employee, customer, files, analytics) for maintainability.",
+    "list_orders for employees filters by assigned_employee_id only — orders created by customers who have no assigned_employee_id will be invisible to all employees. Acceptable for MVP but document.",
+    "expected_otp returns the same DEMO_OTP for every non-super-admin phone — fine for MVP (mocked) but explicitly documented in code as MVP-only.",
+    "/api/files/view accepts token via ?auth= query param — acceptable for img tag usage but consider short-lived signed URLs in production.",
+    "No rate limiting on /api/auth/request-otp or /api/auth/verify-otp — production hardening required."
+  ],
+  "updated_files": ["/app/backend/tests/test_fieldcrm.py"],
+  "success_rate": {"backend": "95.8%", "frontend": "100%"},
+  "test_credentials": "Super Admin: 9858558555/557725. Tenant demo OTP 123456 for 9000000001 (admin), 9000000002 (manager), 9000000003 (employee), 9000000004 (customer, role_hint=customer).",
+  "seed_data_creation": "Tests create transient TEST_ products/users/orders/visits/sales/collections/dcr/enquiries/notifications in demo tenant; user & product CRUD tests cleanup via soft-delete.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest suite at /app/backend/tests/test_fieldcrm.py covers health, public endpoints, OTP auth, super admin (tenants/plans/analytics/create), tenant admin (profile/labels/users/products CRUD), employee flows (checkin/visits/sales/collections/dcr/enquiries), customer order flow + status guard, analytics, CSV export, notifications. Single known failing case is test_employee_visits_sales_collections_dcr_enquiries due to enquiry filter quirk noted above — adjust either the API or the test (assigned_employee_id field on POST) after fix.",
+  "rca of the issue": "Enquiry visibility for employee: in server.py list_enquiries, when user.role==employee, query is q['assigned_employee_id']=user.sub. POST /api/enquiries with no assigned_employee_id stores assigned_employee_id=null, so the creating employee's subsequent GET /enquiries returns []. Fix: change employee branch to q['$or']=[{assigned_employee_id:user.sub},{created_by:user.sub}]."
+}
