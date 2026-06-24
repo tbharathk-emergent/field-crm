@@ -1,52 +1,66 @@
-# FieldCRM SaaS — Product Requirements (PRD)
+# FieldCRM SaaS — PRD (Phase 1 + 2)
 
 ## Original Problem Statement
-Build a multi-tenant, multi-whitelabel SaaS Field Force Management platform for agricultural businesses, FMCG, pharma, manufacturing, service companies. Includes Super Admin, Tenant Admin, Manager, Employee mobile PWA, and Customer/Dealer PWA. Phone+OTP login (SMS default, WhatsApp option). Mock OTPs for MVP. Super Admin phone `9858558555` with OTP `557725`. Demo OTP `123456`. Each tenant has own branding, configurable labels (Farmer/Customer/Patient etc.), and own URL `/t/tenantname`. Mobile-first PWA, multilingual i18n for rural users (en, hi, te, ta, kn, mr).
+Multi-tenant SaaS Field Force Management platform (FieldCRM / localappstore.in) for agriculture, FMCG, pharma, manufacturing, service. Five surfaces: Super Admin, Tenant Admin, Manager, Employee mobile PWA, Customer/Dealer PWA. Phone+OTP login (Pingbix planned, mocked for MVP). Super Admin phone 9858558555 / OTP 557725. Demo OTP 123456. White-label per tenant. Multilingual i18n (en, hi, te, ta, kn, mr). OpenStreetMap for GPS; Google Maps key placeholder per tenant. Emergent Object Storage; AWS S3 placeholder at platform settings.
 
-## User Choices (gathered)
-1. OTP: Mock for now (Pingbix details later)
-2. Maps: OpenStreetMap (Leaflet); placeholder for Google Maps API at tenant level
-3. Storage: Emergent Object Storage; placeholder for AWS S3 at Super Admin level
-4. Scope: MVP focused on full breadth of features; offline sync & push deferred
-5. Design: Simple navigation, multilingual support
+## Phase 2 Choices (user decisions)
+- GPS interval **5 minutes** between check-in and check-out
+- Offline mode for **all field entries** (Visit, Sales, Collection, DCR, Enquiry, Check-in/out, location pings) with auto-sync on reconnect
+- Leave approval by **direct manager OR anyone above in hierarchy**
+- Area assignment **rolls up automatically** to all descendants
+- Targets are **total sales value (₹) per employee per month** with roll-up
+- **Custom roles**: admin creates roles with read/write permissions per module; every employee assigned a role
 
 ## Architecture
-- **Backend**: FastAPI + MongoDB (motor). Tenant-scoped collections (all docs carry `tenant_id`).
-- **Frontend**: React 19 + react-router-dom v7 + Tailwind + shadcn/ui + recharts + react-leaflet.
-- **Auth**: Phone+OTP with JWT (HS256, 168h). Mock OTP via backend (visible on screen for MVP).
-- **Storage**: Emergent Object Storage via `storage_util.py`; soft-delete via DB flag.
-- **Tenant Resolution**: `X-Tenant-Slug` header (set after login); URL pattern `/t/:slug/...`
-- **White-label**: CSS variables `--brand-primary`, `--brand-secondary` injected at runtime from tenant.theme. Configurable labels resolved via `getLabel(tenant, key)`.
-- **i18n**: 6 languages (en, hi, te, ta, kn, mr) via JSON dictionaries in `lib/i18n.js`. Switcher in every shell.
+- Backend: FastAPI + MongoDB (motor). All collections scoped by `tenant_id`.
+- Frontend: React 19 + react-router-dom 7 + Tailwind + shadcn/ui + recharts + react-leaflet.
+- Offline: IndexedDB queue in `/lib/offline.js`; `postOrQueue()` helper used in Visit/Sales/Collection/DCR/Enquiry forms.
+- GPS: `gpsTracker.js` starts a 5-min interval when employee checks in, stops on check-out. Persists state to localStorage so reloads resume tracking.
+- Permissions: `/api/my-permissions` returns effective permissions overlay (default + custom role). `AppContext.can(module, action)` gates UI.
 
-## What's Implemented (Phase 1 — Feb 2026)
-### Backend (`/app/backend/`)
-- Models: Tenant, Plan, User (multi-role), Attendance, LocationPing, Visit, SalesEntry, CollectionEntry, DCR, Enquiry, Product, Order, Notification, FileRecord, PlatformSettings
-- Routes: `/api/auth/*` (request-otp, verify-otp, me), `/api/public/*` (tenant lookup, demo creds), `/api/super/*` (tenants CRUD, plans CRUD, settings, analytics), `/api/tenant/*` (profile, users, products), `/api/employee/*` (checkin, checkout, location, attendance/today), `/api/visits`, `/api/sales`, `/api/collections`, `/api/dcr`, `/api/enquiries`, `/api/orders`, `/api/notifications`, `/api/files/upload`, `/api/files/view`, `/api/export/{resource}`, `/api/import/{resource}`, `/api/analytics/tenant`, `/api/locations`
-- Seed: 4 plans, 1 demo tenant (Akshara Agro), super admin, 4 tenant users, 5 products
-- Storage init at startup
-- Excel/CSV import & export via pandas
+## What's Implemented
 
-### Frontend (`/app/frontend/src/`)
-- **Landing** (`/`): Brand hero, tenant slug entry, demo shortcuts
-- **Login** (`/login`, `/t/:slug`): Phone+OTP with role tabs (Staff/Customer), super admin auto-detect, mock OTP display, demo login chips, channel toggle (SMS/WhatsApp), language switcher, resend timer
-- **Super Admin**: Dashboard with KPIs, Tenants grid+CRUD+modal, Plans CRUD, Settings (S3+SMS placeholders)
-- **Tenant Admin**: Dashboard with 12 KPIs + 7-day sales trend + top employees, Branding editor (logo upload, color pickers, label config, live preview), Employees CRUD with manager assignment, Dealers CRUD with employee assignment, Products grid CRUD, Orders status workflow, Enquiries with assign/status, Reports (Excel/CSV export), Announcements
-- **Manager**: Dashboard, Team list, OpenStreetMap GPS view, Reports
-- **Employee PWA** (mobile, white-labeled): Tetris home with 9 cards + dominant Check-in/out, Dealers list with GPS+call, Visit/Collection/Sales/DCR forms, Customer Enquiry, Catalogue, Notifications, Profile
-- **Customer/Dealer PWA** (mobile, white-labeled): Home with KPI cards + recent orders, Catalogue with add-to-cart, Cart with quantity controls, Orders with status timeline colors, Account with outstanding/credit + raise enquiry
-- Multi-language i18n with 6 languages
-- Runtime tenant theming via CSS vars
-- Toaster notifications
+### Phase 1 (Feb 2026)
+- Phone+OTP auth (mock), JWT with tenant + role + permissions
+- Super Admin: tenants/plans/settings + global analytics
+- Tenant Admin: branding (logo + colors + label customizer with live preview), employees, dealers, products, orders, enquiries, reports, announcements
+- Manager: dashboard, team, OSM map, reports
+- Employee PWA: home + 8 cards (check-in/out, dealers, visit, collection, sales, DCR, enquiry, catalogue, notifications)
+- Customer/Dealer PWA: home, catalogue with cart, place order, order history, account
+- Excel/CSV import-export, Emergent Object Storage uploads, 6-language i18n, runtime CSS-var theming
 
-## Backlog (P1 — Phase 2)
-- **P0**: Offline sync (IndexedDB) for entries, Pingbix SMS integration (real OTPs), Push notifications (web push)
-- **P1**: Selfie capture during check-in, Audit logs for important actions, Period/Year filters on reports, Bulk import preview/error UI, Photo upload UI for visits/enquiries/collections/receipts, Product image upload
-- **P2**: GPS background polling, Razorpay payments, Tally integration, Distributor network/hierarchy, Loyalty/incentives, Map route polylines with distance calc, Per-tenant subdomain wildcard routing, PWA manifest per tenant (dynamic icon/splash)
+### Phase 2 (Feb 2026)
+- **Area Hierarchy** (Country → State → District → Area) — `/api/areas` CRUD, tree UI at `/t/:slug/admin/areas`. 8 nodes seeded for demo tenant (India / Telangana+AP / Hyderabad+Warangal+Karimnagar / Hyderabad N+S).
+- **Custom Roles & Permissions** — `/api/roles`, `/api/permission-modules`, `/api/my-permissions`. UI at `/t/:slug/admin/roles` with module×{read,write} matrix; 2 default roles seeded (Sales Executive, Read-Only Observer). Employees PWA cards gate visibility via `can()`.
+- **Monthly Targets** — `/api/targets` and `/api/targets/progress` with sales actual aggregation. UI at `/t/:slug/admin/targets` (per-employee row with progress bar). Employee PWA home shows progress card. Demo: Anil ₹50k, Priya ₹40k for current month.
+- **Leaves** — `/api/leaves` apply (employee), list (mine for employees, team+self for managers, all for admin), `/api/leaves/{id}` PATCH for approve/reject with hierarchy enforcement (direct manager or anyone above; tenant_admin always). Employee PWA at `/app/leaves` with Apply modal; Tenant Admin & Manager at `/admin/leaves` and `/manager/leaves` with Approve/Reject dialog.
+- **Offline Queue** — IndexedDB-backed queue (`fc_offline.queue`). Field forms call `postOrQueue()` and survive network outages. `OfflineIndicator` shows pending count + Sync Now button. Auto-sync on `online` event via `/api/sync/batch`. Supports visit/sales/collection/dcr/enquiry/location types.
+- **GPS Tracking Enhanced** — Background ping every 5 min on check-in. `/api/gps/track?user_id=...&date=...` returns pings + 50m-radius clustered stops + duration + attached visit activities (within 200m of stop). `/api/gps/live` returns currently checked-in users with last known location. Manager Map view has History/Live toggle, stop timeline, distance KPI.
+- **User Model Extensions** — `role_id` (custom role), `area_node_id` (any level of area hierarchy), `leave_balance`. Employee Add modal exposes both selects.
+
+### Backend test coverage
+- 23/23 pytest pass on Phase 2 endpoints (`test_phase2.py`)
+- Includes hierarchy enforcement (403 for non-chain manager), GPS clustering, sync batch round-trip, target progress rollup, role permissions overlay
 
 ## Personas
-1. **Super Admin** (FieldCRM ops) — tenants, billing, platform settings
-2. **Tenant Admin** (business owner) — branding, employees, dealers, products, reports
-3. **Manager** — team supervisor, GPS, performance, reports
-4. **Field Employee** — daily check-in, visits, sales, collections, DCR, enquiries
-5. **Customer/Dealer** — browse catalogue, place orders, view outstanding, raise enquiries
+1. **Super Admin** — platform owner (tenants, billing, settings)
+2. **Tenant Admin** — business owner (branding, areas, roles, targets, all data)
+3. **Manager** — team supervisor (approves leaves of reports, GPS, performance)
+4. **Field Employee** — daily activity entries + leave application
+5. **Customer/Dealer** — catalogue, orders, account
+
+## Backlog (P1)
+- Pingbix SMS integration once credentials shared (provider already plumbed in Platform Settings)
+- Selfie capture during check-in
+- Photo uploads on Visit/Enquiry/Collection forms
+- Audit logs for important actions
+- Per-tenant subdomain wildcard routing + PWA manifest per tenant
+- Tree-move support for area hierarchy (PATCH with parent_id update)
+- Sync batch idempotency (dedupe by client_id)
+
+## Backlog (P2)
+- Push notifications (web push)
+- Razorpay payments, Tally integration
+- Distributor network / multi-level hierarchy
+- Loyalty / incentive schemes
+- Background route-replay with speed colored polylines
