@@ -1,7 +1,10 @@
 """Seed default plans, demo tenant, demo users."""
 import os
 from datetime import datetime, timezone, timedelta
-from models import Plan, Tenant, TenantTheme, TenantLabels, User, Product, PlatformSettings, now_iso, gen_id
+from models import (
+    Plan, Tenant, TenantTheme, TenantLabels, User, Product, PlatformSettings,
+    AreaNode, Role, Target, PERMISSION_MODULES, now_iso, gen_id,
+)
 
 
 DEFAULT_PLANS = [
@@ -122,3 +125,144 @@ async def seed_all(db):
         for sp in sample_products:
             prod = Product(tenant_id=tenant_id, **sp)
             await db.products.insert_one(prod.model_dump())
+
+        # 7) Phase 2: Area Hierarchy (Country → State → District → Area)
+        india = AreaNode(tenant_id=tenant_id, name="India", type="country", path=[])
+        await db.areas.insert_one(india.model_dump())
+        telangana = AreaNode(tenant_id=tenant_id, name="Telangana", type="state",
+                              parent_id=india.id, path=[india.id])
+        await db.areas.insert_one(telangana.model_dump())
+        ap = AreaNode(tenant_id=tenant_id, name="Andhra Pradesh", type="state",
+                      parent_id=india.id, path=[india.id])
+        await db.areas.insert_one(ap.model_dump())
+        hyd = AreaNode(tenant_id=tenant_id, name="Hyderabad", type="district",
+                       parent_id=telangana.id, path=[india.id, telangana.id])
+        await db.areas.insert_one(hyd.model_dump())
+        wgl = AreaNode(tenant_id=tenant_id, name="Warangal", type="district",
+                       parent_id=telangana.id, path=[india.id, telangana.id])
+        await db.areas.insert_one(wgl.model_dump())
+        krg = AreaNode(tenant_id=tenant_id, name="Karimnagar", type="district",
+                       parent_id=telangana.id, path=[india.id, telangana.id])
+        await db.areas.insert_one(krg.model_dump())
+        hyd_n = AreaNode(tenant_id=tenant_id, name="Hyderabad North", type="area",
+                         parent_id=hyd.id, path=[india.id, telangana.id, hyd.id])
+        await db.areas.insert_one(hyd_n.model_dump())
+        hyd_s = AreaNode(tenant_id=tenant_id, name="Hyderabad South", type="area",
+                         parent_id=hyd.id, path=[india.id, telangana.id, hyd.id])
+        await db.areas.insert_one(hyd_s.model_dump())
+
+        # Assign areas to demo users
+        await db.users.update_one({"id": manager.id}, {"$set": {"area_node_id": telangana.id}})
+        await db.users.update_one({"id": employee.id}, {"$set": {"area_node_id": hyd_n.id}})
+        await db.users.update_one({"id": employee2.id}, {"$set": {"area_node_id": hyd_s.id}})
+
+        # 8) Phase 2: Default custom roles
+        full = {m: {"read": True, "write": True} for m in PERMISSION_MODULES}
+        view_only = {m: {"read": True, "write": False} for m in PERMISSION_MODULES}
+
+        sales_role_perm = {m: {"read": False, "write": False} for m in PERMISSION_MODULES}
+        for m in ("visits", "sales", "collections", "dcr", "enquiries",
+                   "dealers", "products", "leaves", "orders"):
+            sales_role_perm[m] = {"read": True, "write": True}
+
+        sales_role = Role(tenant_id=tenant_id, name="Sales Executive",
+                          description="Standard field sales staff with full activity write access",
+                          permissions=sales_role_perm, is_default=True)
+        await db.roles.insert_one(sales_role.model_dump())
+
+        readonly_perm = {m: {"read": False, "write": False} for m in PERMISSION_MODULES}
+        for m in ("visits", "sales", "collections", "dcr", "enquiries", "dealers", "products", "leaves"):
+            readonly_perm[m] = {"read": True, "write": False}
+        readonly_role = Role(tenant_id=tenant_id, name="Read-Only Observer",
+                             description="Can see entries but not create them",
+                             permissions=readonly_perm)
+        await db.roles.insert_one(readonly_role.model_dump())
+
+        # Assign default sales role to seeded employees
+        await db.users.update_one({"id": employee.id}, {"$set": {"role_id": sales_role.id}})
+        await db.users.update_one({"id": employee2.id}, {"$set": {"role_id": sales_role.id}})
+
+        # 9) Phase 2: Sample monthly target for current month for seeded employees
+        cur_month = datetime.now(timezone.utc).strftime("%Y-%m")
+        for emp_id, emp_name, tgt in [(employee.id, employee.name, 50000),
+                                       (employee2.id, employee2.name, 40000)]:
+            t = Target(tenant_id=tenant_id, user_id=emp_id, user_name=emp_name,
+                       month=cur_month, sales_target=tgt)
+            await db.targets.insert_one(t.model_dump())
+
+
+
+    # ---- Idempotent Phase 2 backfill for demo tenant ----
+    demo = await db.tenants.find_one({"slug": "demo"})
+    if demo:
+        tid = demo["id"]
+        # If no areas yet for this tenant, build hierarchy + assign employees
+        if await db.areas.count_documents({"tenant_id": tid}) == 0:
+            india = AreaNode(tenant_id=tid, name="India", type="country", path=[])
+            await db.areas.insert_one(india.model_dump())
+            telangana = AreaNode(tenant_id=tid, name="Telangana", type="state",
+                                  parent_id=india.id, path=[india.id])
+            await db.areas.insert_one(telangana.model_dump())
+            ap = AreaNode(tenant_id=tid, name="Andhra Pradesh", type="state",
+                          parent_id=india.id, path=[india.id])
+            await db.areas.insert_one(ap.model_dump())
+            hyd = AreaNode(tenant_id=tid, name="Hyderabad", type="district",
+                           parent_id=telangana.id, path=[india.id, telangana.id])
+            await db.areas.insert_one(hyd.model_dump())
+            wgl = AreaNode(tenant_id=tid, name="Warangal", type="district",
+                           parent_id=telangana.id, path=[india.id, telangana.id])
+            await db.areas.insert_one(wgl.model_dump())
+            krg = AreaNode(tenant_id=tid, name="Karimnagar", type="district",
+                           parent_id=telangana.id, path=[india.id, telangana.id])
+            await db.areas.insert_one(krg.model_dump())
+            hyd_n = AreaNode(tenant_id=tid, name="Hyderabad North", type="area",
+                             parent_id=hyd.id, path=[india.id, telangana.id, hyd.id])
+            await db.areas.insert_one(hyd_n.model_dump())
+            hyd_s = AreaNode(tenant_id=tid, name="Hyderabad South", type="area",
+                             parent_id=hyd.id, path=[india.id, telangana.id, hyd.id])
+            await db.areas.insert_one(hyd_s.model_dump())
+
+            # Assign by phone (idempotent)
+            await db.users.update_one({"tenant_id": tid, "phone": "9000000002"},
+                                      {"$set": {"area_node_id": telangana.id}})
+            await db.users.update_one({"tenant_id": tid, "phone": "9000000003"},
+                                      {"$set": {"area_node_id": hyd_n.id}})
+            await db.users.update_one({"tenant_id": tid, "phone": "9000000005"},
+                                      {"$set": {"area_node_id": hyd_s.id}})
+
+        # Default roles
+        if await db.roles.count_documents({"tenant_id": tid}) == 0:
+            sales_role_perm = {m: {"read": False, "write": False} for m in PERMISSION_MODULES}
+            for m in ("visits", "sales", "collections", "dcr", "enquiries",
+                       "dealers", "products", "leaves", "orders"):
+                sales_role_perm[m] = {"read": True, "write": True}
+            sales_role = Role(tenant_id=tid, name="Sales Executive",
+                              description="Standard field sales staff with full activity write access",
+                              permissions=sales_role_perm, is_default=True)
+            await db.roles.insert_one(sales_role.model_dump())
+
+            readonly_perm = {m: {"read": False, "write": False} for m in PERMISSION_MODULES}
+            for m in ("visits", "sales", "collections", "dcr", "enquiries",
+                       "dealers", "products", "leaves"):
+                readonly_perm[m] = {"read": True, "write": False}
+            readonly_role = Role(tenant_id=tid, name="Read-Only Observer",
+                                 description="Can see entries but not create them",
+                                 permissions=readonly_perm)
+            await db.roles.insert_one(readonly_role.model_dump())
+
+            await db.users.update_one({"tenant_id": tid, "phone": "9000000003"},
+                                      {"$set": {"role_id": sales_role.id}})
+            await db.users.update_one({"tenant_id": tid, "phone": "9000000005"},
+                                      {"$set": {"role_id": sales_role.id}})
+
+        # Current month targets
+        cur_month = datetime.now(timezone.utc).strftime("%Y-%m")
+        for phone, tgt in [("9000000003", 50000), ("9000000005", 40000)]:
+            udoc = await db.users.find_one({"tenant_id": tid, "phone": phone})
+            if not udoc:
+                continue
+            existing = await db.targets.find_one({"tenant_id": tid, "user_id": udoc["id"], "month": cur_month})
+            if not existing:
+                t = Target(tenant_id=tid, user_id=udoc["id"],
+                           user_name=udoc.get("name", ""), month=cur_month, sales_target=tgt)
+                await db.targets.insert_one(t.model_dump())

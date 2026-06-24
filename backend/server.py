@@ -19,6 +19,7 @@ from models import (
     Tenant, TenantTheme, TenantLabels, Plan, User, Attendance, LocationPing, Visit,
     SalesEntry, CollectionEntry, DCR, Enquiry, Product, Order, OrderItem, Notification,
     FileRecord, PlatformSettings, now_iso, gen_id,
+    AreaNode, Role, LeaveRequest, Target, PERMISSION_MODULES,
 )
 from auth import (
     make_token, decode_token, get_current_user, require_roles,
@@ -441,6 +442,8 @@ class UserIn(BaseModel):
     employee_code: Optional[str] = None
     manager_id: Optional[str] = None
     area: Optional[str] = None
+    role_id: Optional[str] = None
+    area_node_id: Optional[str] = None
     business_name: Optional[str] = None
     dealer_code: Optional[str] = None
     address: Optional[str] = None
@@ -1222,6 +1225,514 @@ async def root():
 @api.get("/health")
 async def health():
     return {"ok": True, "time": now_iso()}
+
+
+# ==================== PHASE 2 ====================
+
+# ---------------- Phase 2: Area Hierarchy ----------------
+async def _get_descendant_area_ids(tenant_id: str, root_id: Optional[str]) -> List[str]:
+    """Return [root_id] + all descendants."""
+    if not root_id:
+        return []
+    ids = [root_id]
+    docs = await db.areas.find({"tenant_id": tenant_id, "path": root_id}).to_list(10000)
+    ids.extend([d["id"] for d in docs])
+    return ids
+
+
+async def _user_scope_area_ids(user: dict) -> Optional[List[str]]:
+    """Returns the list of area_node_ids this user can see, or None for unrestricted."""
+    if user["role"] in ("super_admin", "tenant_admin"):
+        return None
+    udoc = await db.users.find_one({"id": user["sub"]})
+    if not udoc or not udoc.get("area_node_id"):
+        return None
+    return await _get_descendant_area_ids(user["tid"], udoc["area_node_id"])
+
+
+class AreaIn(BaseModel):
+    name: str
+    type: str  # country | state | district | area
+    parent_id: Optional[str] = None
+    code: Optional[str] = None
+
+
+@api.get("/areas")
+async def list_areas(user: dict = Depends(require_roles("tenant_admin", "manager", "employee"))):
+    docs = await db.areas.find({"tenant_id": user["tid"], "is_active": True}).to_list(5000)
+    return [clean(d) for d in docs]
+
+
+@api.post("/areas")
+async def create_area(payload: AreaIn, user: dict = Depends(require_roles("tenant_admin"))):
+    if payload.type not in ("country", "state", "district", "area"):
+        raise HTTPException(400, "Invalid area type")
+    path: List[str] = []
+    if payload.parent_id:
+        parent = await db.areas.find_one({"id": payload.parent_id, "tenant_id": user["tid"]})
+        if not parent:
+            raise HTTPException(400, "Parent not found")
+        path = list(parent.get("path", [])) + [parent["id"]]
+    node = AreaNode(tenant_id=user["tid"], name=payload.name, type=payload.type,
+                    parent_id=payload.parent_id, path=path, code=payload.code)
+    await db.areas.insert_one(node.model_dump())
+    return clean(node.model_dump())
+
+
+@api.patch("/areas/{aid}")
+async def update_area(aid: str, payload: AreaIn, user: dict = Depends(require_roles("tenant_admin"))):
+    updates = {"name": payload.name, "code": payload.code}
+    await db.areas.update_one({"id": aid, "tenant_id": user["tid"]}, {"$set": updates})
+    a = await db.areas.find_one({"id": aid})
+    return clean(a)
+
+
+@api.delete("/areas/{aid}")
+async def delete_area(aid: str, user: dict = Depends(require_roles("tenant_admin"))):
+    # also disable descendants
+    await db.areas.update_many(
+        {"$or": [{"id": aid}, {"path": aid}], "tenant_id": user["tid"]},
+        {"$set": {"is_active": False}},
+    )
+    return {"ok": True}
+
+
+# ---------------- Phase 2: Custom Roles ----------------
+@api.get("/permission-modules")
+async def list_permission_modules(user: dict = Depends(get_current_user)):
+    return {"modules": PERMISSION_MODULES}
+
+
+@api.get("/roles")
+async def list_roles(user: dict = Depends(require_roles("tenant_admin", "manager", "employee"))):
+    docs = await db.roles.find({"tenant_id": user["tid"], "is_active": True}).to_list(200)
+    return [clean(d) for d in docs]
+
+
+class RoleIn(BaseModel):
+    name: str
+    description: Optional[str] = None
+    permissions: Dict[str, Dict[str, bool]] = {}
+    is_default: bool = False
+
+
+@api.post("/roles")
+async def create_role(payload: RoleIn, user: dict = Depends(require_roles("tenant_admin"))):
+    r = Role(tenant_id=user["tid"], **payload.model_dump())
+    await db.roles.insert_one(r.model_dump())
+    return clean(r.model_dump())
+
+
+@api.patch("/roles/{rid}")
+async def update_role(rid: str, payload: RoleIn, user: dict = Depends(require_roles("tenant_admin"))):
+    await db.roles.update_one({"id": rid, "tenant_id": user["tid"]}, {"$set": payload.model_dump()})
+    r = await db.roles.find_one({"id": rid})
+    return clean(r)
+
+
+@api.delete("/roles/{rid}")
+async def delete_role(rid: str, user: dict = Depends(require_roles("tenant_admin"))):
+    await db.roles.update_one({"id": rid, "tenant_id": user["tid"]}, {"$set": {"is_active": False}})
+    return {"ok": True}
+
+
+@api.get("/my-permissions")
+async def my_permissions(user: dict = Depends(get_current_user)):
+    """Returns the effective permissions of the logged-in user."""
+    # Built-in roles bypass custom permissions (full access in their scope)
+    if user["role"] in ("super_admin", "tenant_admin"):
+        return {"permissions": {m: {"read": True, "write": True} for m in PERMISSION_MODULES}}
+    udoc = await db.users.find_one({"id": user["sub"]})
+    if user["role"] == "manager":
+        # managers get read on most modules, write on their own activity
+        base = {m: {"read": True, "write": True} for m in PERMISSION_MODULES}
+        base["roles"] = {"read": False, "write": False}
+        base["branding"] = {"read": False, "write": False}
+        base["areas"] = {"read": True, "write": False}
+        return {"permissions": base}
+    if user["role"] == "employee":
+        # default: write on field entries, read on others
+        default = {m: {"read": False, "write": False} for m in PERMISSION_MODULES}
+        for m in ("visits", "sales", "collections", "dcr", "enquiries", "dealers", "products", "leaves"):
+            default[m] = {"read": True, "write": True}
+        default["reports"] = {"read": False, "write": False}
+        # Overlay custom role
+        if udoc and udoc.get("role_id"):
+            role = await db.roles.find_one({"id": udoc["role_id"]})
+            if role and role.get("permissions"):
+                for k, v in role["permissions"].items():
+                    default[k] = v
+        return {"permissions": default}
+    if user["role"] == "customer":
+        return {"permissions": {
+            "products": {"read": True, "write": False},
+            "orders": {"read": True, "write": True},
+            "enquiries": {"read": True, "write": True},
+        }}
+    return {"permissions": {}}
+
+
+# ---------------- Phase 2: Leaves ----------------
+class LeaveIn(BaseModel):
+    leave_type: str = "casual"
+    from_date: str
+    to_date: str
+    reason: Optional[str] = None
+
+
+def _days_between(d1: str, d2: str) -> float:
+    a = datetime.fromisoformat(d1)
+    b = datetime.fromisoformat(d2)
+    return float((b - a).days + 1)
+
+
+async def _is_in_hierarchy_above(tenant_id: str, candidate_id: str, employee_id: str) -> bool:
+    """True if candidate is the employee's manager or any ancestor manager, or tenant_admin."""
+    cand = await db.users.find_one({"id": candidate_id, "tenant_id": tenant_id})
+    if not cand:
+        return False
+    if cand["role"] == "tenant_admin":
+        return True
+    # walk up employee's manager chain
+    current = await db.users.find_one({"id": employee_id, "tenant_id": tenant_id})
+    visited = set()
+    while current and current.get("manager_id") and current["manager_id"] not in visited:
+        visited.add(current["manager_id"])
+        if current["manager_id"] == candidate_id:
+            return True
+        current = await db.users.find_one({"id": current["manager_id"], "tenant_id": tenant_id})
+    return False
+
+
+@api.post("/leaves")
+async def apply_leave(payload: LeaveIn,
+                      user: dict = Depends(require_roles("employee", "manager", "tenant_admin"))):
+    days = _days_between(payload.from_date, payload.to_date)
+    if days <= 0:
+        raise HTTPException(400, "Invalid date range")
+    udoc = await db.users.find_one({"id": user["sub"]})
+    lr = LeaveRequest(tenant_id=user["tid"], employee_id=user["sub"],
+                      employee_name=(udoc or {}).get("name", ""), days=days,
+                      **payload.model_dump())
+    await db.leaves.insert_one(lr.model_dump())
+    return clean(lr.model_dump())
+
+
+@api.get("/leaves")
+async def list_leaves(employee_id: Optional[str] = None, status: Optional[str] = None,
+                      mine: bool = False,
+                      user: dict = Depends(require_roles("employee", "manager", "tenant_admin"))):
+    q: Dict[str, Any] = {"tenant_id": user["tid"]}
+    if mine or user["role"] == "employee":
+        q["employee_id"] = user["sub"]
+    elif user["role"] == "manager":
+        # show direct reports + own
+        team = await db.users.find({"tenant_id": user["tid"], "manager_id": user["sub"]}).to_list(2000)
+        team_ids = [u["id"] for u in team] + [user["sub"]]
+        q["employee_id"] = {"$in": team_ids}
+        if employee_id:
+            q["employee_id"] = employee_id
+    elif employee_id:
+        q["employee_id"] = employee_id
+    if status:
+        q["status"] = status
+    docs = await db.leaves.find(q).sort("created_at", -1).to_list(2000)
+    return [clean(d) for d in docs]
+
+
+class LeaveDecisionIn(BaseModel):
+    status: str  # approved | rejected
+    comments: Optional[str] = None
+
+
+@api.patch("/leaves/{lid}")
+async def decide_leave(lid: str, payload: LeaveDecisionIn,
+                       user: dict = Depends(require_roles("manager", "tenant_admin"))):
+    lr = await db.leaves.find_one({"id": lid, "tenant_id": user["tid"]})
+    if not lr:
+        raise HTTPException(404, "Leave not found")
+    if payload.status not in ("approved", "rejected", "cancelled"):
+        raise HTTPException(400, "Invalid status")
+    # Check approver authority: direct manager or anyone above in hierarchy
+    if user["role"] != "tenant_admin":
+        allowed = await _is_in_hierarchy_above(user["tid"], user["sub"], lr["employee_id"])
+        if not allowed:
+            raise HTTPException(403, "You are not in the approval chain for this employee")
+    approver = await db.users.find_one({"id": user["sub"]})
+    await db.leaves.update_one({"id": lid}, {"$set": {
+        "status": payload.status,
+        "approver_id": user["sub"],
+        "approver_name": (approver or {}).get("name", ""),
+        "approver_comments": payload.comments,
+        "decided_at": now_iso(),
+    }})
+    out = await db.leaves.find_one({"id": lid})
+    return clean(out)
+
+
+# ---------------- Phase 2: Targets ----------------
+class TargetIn(BaseModel):
+    user_id: str
+    month: str  # YYYY-MM
+    sales_target: float
+
+
+@api.post("/targets")
+async def set_target(payload: TargetIn, user: dict = Depends(require_roles("tenant_admin", "manager"))):
+    udoc = await db.users.find_one({"id": payload.user_id, "tenant_id": user["tid"]})
+    if not udoc:
+        raise HTTPException(404, "Employee not found")
+    existing = await db.targets.find_one({"tenant_id": user["tid"], "user_id": payload.user_id, "month": payload.month})
+    if existing:
+        await db.targets.update_one({"id": existing["id"]},
+            {"$set": {"sales_target": payload.sales_target, "updated_at": now_iso(), "set_by": user["sub"]}})
+        out = await db.targets.find_one({"id": existing["id"]})
+        return clean(out)
+    t = Target(tenant_id=user["tid"], user_id=payload.user_id,
+               user_name=udoc.get("name", ""), month=payload.month,
+               sales_target=payload.sales_target, set_by=user["sub"])
+    await db.targets.insert_one(t.model_dump())
+    return clean(t.model_dump())
+
+
+@api.get("/targets")
+async def list_targets(month: Optional[str] = None, user_id: Optional[str] = None,
+                       user: dict = Depends(require_roles("tenant_admin", "manager", "employee"))):
+    q: Dict[str, Any] = {"tenant_id": user["tid"]}
+    if user["role"] == "employee":
+        q["user_id"] = user["sub"]
+    elif user_id:
+        q["user_id"] = user_id
+    if month:
+        q["month"] = month
+    docs = await db.targets.find(q).sort("month", -1).to_list(500)
+    return [clean(d) for d in docs]
+
+
+@api.get("/targets/progress")
+async def target_progress(month: Optional[str] = None,
+                          user: dict = Depends(require_roles("tenant_admin", "manager", "employee"))):
+    """Returns target vs actual for the user (or each user under manager/admin scope)."""
+    month = month or datetime.now(timezone.utc).strftime("%Y-%m")
+    month_start = f"{month}-01"
+    # next month start
+    y, m = map(int, month.split("-"))
+    if m == 12:
+        nm = f"{y+1}-01-01"
+    else:
+        nm = f"{y}-{m+1:02d}-01"
+
+    # Determine target users
+    if user["role"] == "employee":
+        user_ids = [user["sub"]]
+    elif user["role"] == "manager":
+        team = await db.users.find({"tenant_id": user["tid"], "manager_id": user["sub"]}).to_list(2000)
+        user_ids = [u["id"] for u in team] + [user["sub"]]
+    else:  # tenant_admin
+        all_emp = await db.users.find({"tenant_id": user["tid"],
+                                        "role": {"$in": ["employee", "manager"]}}).to_list(5000)
+        user_ids = [u["id"] for u in all_emp]
+
+    rows = []
+    for uid in user_ids:
+        udoc = await db.users.find_one({"id": uid})
+        target = await db.targets.find_one({"tenant_id": user["tid"], "user_id": uid, "month": month})
+        sales_agg = await db.sales.aggregate([
+            {"$match": {"tenant_id": user["tid"], "employee_id": uid,
+                        "sale_date": {"$gte": month_start, "$lt": nm}}},
+            {"$group": {"_id": None, "sum": {"$sum": "$value"}}},
+        ]).to_list(1)
+        actual = sales_agg[0]["sum"] if sales_agg else 0
+        tgt = (target or {}).get("sales_target", 0)
+        rows.append({
+            "user_id": uid,
+            "user_name": (udoc or {}).get("name", ""),
+            "role": (udoc or {}).get("role", ""),
+            "month": month,
+            "target": tgt,
+            "actual": actual,
+            "percent": round((actual / tgt * 100), 1) if tgt > 0 else 0,
+        })
+    return {"month": month, "rows": rows}
+
+
+# ---------------- Phase 2: Batch Sync (Offline) ----------------
+class BatchSyncItem(BaseModel):
+    type: str  # visit | sales | collection | dcr | enquiry | location
+    payload: Dict[str, Any]
+    client_id: Optional[str] = None  # local UUID for dedup
+
+
+@api.post("/sync/batch")
+async def sync_batch(items: List[BatchSyncItem],
+                     user: dict = Depends(require_roles("employee", "manager", "tenant_admin"))):
+    """Bulk apply queued offline entries."""
+    udoc = await db.users.find_one({"id": user["sub"]})
+    uname = (udoc or {}).get("name", "")
+    results = []
+    for it in items:
+        try:
+            t = it.type
+            p = it.payload or {}
+            if t == "visit":
+                v = Visit(tenant_id=user["tid"], employee_id=user["sub"], employee_name=uname, **p)
+                await db.visits.insert_one(v.model_dump())
+                results.append({"client_id": it.client_id, "ok": True, "id": v.id})
+            elif t == "sales":
+                if "value" not in p or not p["value"]:
+                    p["value"] = float(p.get("quantity", 0)) * float(p.get("unit_price", 0))
+                s = SalesEntry(tenant_id=user["tid"], employee_id=user["sub"], employee_name=uname, **p)
+                await db.sales.insert_one(s.model_dump())
+                results.append({"client_id": it.client_id, "ok": True, "id": s.id})
+            elif t == "collection":
+                c = CollectionEntry(tenant_id=user["tid"], employee_id=user["sub"], employee_name=uname, **p)
+                await db.collections.insert_one(c.model_dump())
+                if c.dealer_id:
+                    await db.users.update_one({"id": c.dealer_id}, {"$inc": {"outstanding_amount": -c.amount}})
+                results.append({"client_id": it.client_id, "ok": True, "id": c.id})
+            elif t == "dcr":
+                d = DCR(tenant_id=user["tid"], employee_id=user["sub"], employee_name=uname, **p)
+                await db.dcr.insert_one(d.model_dump())
+                results.append({"client_id": it.client_id, "ok": True, "id": d.id})
+            elif t == "enquiry":
+                e = Enquiry(tenant_id=user["tid"], created_by=user["sub"], **p)
+                await db.enquiries.insert_one(e.model_dump())
+                results.append({"client_id": it.client_id, "ok": True, "id": e.id})
+            elif t == "location":
+                lp = LocationPing(tenant_id=user["tid"], user_id=user["sub"],
+                                  lat=p["lat"], lng=p["lng"], timestamp=p.get("timestamp") or now_iso())
+                await db.locations.insert_one(lp.model_dump())
+                results.append({"client_id": it.client_id, "ok": True, "id": lp.id})
+            else:
+                results.append({"client_id": it.client_id, "ok": False, "error": f"unknown type {t}"})
+        except Exception as e:
+            results.append({"client_id": it.client_id, "ok": False, "error": str(e)})
+    return {"synced": sum(1 for r in results if r["ok"]), "total": len(results), "results": results}
+
+
+# ---------------- Phase 2: GPS Route with Clustered Stops ----------------
+def _haversine_m(lat1, lng1, lat2, lng2) -> float:
+    import math
+    R = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlng / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+@api.get("/gps/track")
+async def gps_track(user_id: str, date: str,
+                    user: dict = Depends(require_roles("tenant_admin", "manager", "employee"))):
+    """Returns pings + clustered stops + activities (visits/enquiries) at each stop."""
+    # employees can only see their own track
+    if user["role"] == "employee" and user_id != user["sub"]:
+        raise HTTPException(403, "Forbidden")
+
+    pings = await db.locations.find({
+        "tenant_id": user["tid"], "user_id": user_id,
+        "timestamp": {"$regex": f"^{date}"},
+    }).sort("timestamp", 1).to_list(10000)
+
+    # Cluster consecutive pings within 50m
+    stops = []
+    current = None
+    for p in pings:
+        if current is None:
+            current = {"lat": p["lat"], "lng": p["lng"], "start": p["timestamp"], "end": p["timestamp"], "count": 1}
+        else:
+            d = _haversine_m(current["lat"], current["lng"], p["lat"], p["lng"])
+            if d <= 50:
+                current["end"] = p["timestamp"]
+                current["count"] += 1
+                # running centroid
+                current["lat"] = (current["lat"] * (current["count"] - 1) + p["lat"]) / current["count"]
+                current["lng"] = (current["lng"] * (current["count"] - 1) + p["lng"]) / current["count"]
+            else:
+                stops.append(current)
+                current = {"lat": p["lat"], "lng": p["lng"], "start": p["timestamp"], "end": p["timestamp"], "count": 1}
+    if current:
+        stops.append(current)
+
+    # Compute durations and attach activities (visits + enquiries created during stop window with nearby lat/lng)
+    for s in stops:
+        try:
+            s["duration_min"] = round((datetime.fromisoformat(s["end"]) - datetime.fromisoformat(s["start"])).total_seconds() / 60, 1)
+        except Exception:
+            s["duration_min"] = 0
+        s["activities"] = []
+    visits = await db.visits.find({
+        "tenant_id": user["tid"], "employee_id": user_id, "visit_date": date,
+    }).to_list(1000)
+    for v in visits:
+        if v.get("lat") is None or v.get("lng") is None:
+            continue
+        # find nearest stop within 200m
+        best, best_d = None, 1e9
+        for s in stops:
+            d = _haversine_m(s["lat"], s["lng"], v["lat"], v["lng"])
+            if d < best_d:
+                best, best_d = s, d
+        if best and best_d <= 200:
+            best["activities"].append({
+                "type": "visit",
+                "title": v.get("dealer_name") or "Visit",
+                "id": v["id"],
+            })
+
+    # Attendance summary
+    att = await db.attendance.find_one({"tenant_id": user["tid"], "user_id": user_id, "date": date})
+
+    total_dist = 0.0
+    for i in range(1, len(pings)):
+        total_dist += _haversine_m(pings[i - 1]["lat"], pings[i - 1]["lng"], pings[i]["lat"], pings[i]["lng"])
+
+    return {
+        "user_id": user_id, "date": date,
+        "pings": [{"lat": p["lat"], "lng": p["lng"], "timestamp": p["timestamp"]} for p in pings],
+        "stops": stops,
+        "distance_m": round(total_dist, 1),
+        "attendance": clean(att) if att else None,
+    }
+
+
+@api.get("/gps/live")
+async def gps_live(user: dict = Depends(require_roles("tenant_admin", "manager"))):
+    """Latest location of all currently checked-in employees (admin/manager view)."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # Find users with active attendance
+    att = await db.attendance.find({"tenant_id": user["tid"], "date": today,
+                                     "check_in_at": {"$ne": None},
+                                     "check_out_at": None}).to_list(2000)
+    out = []
+    for a in att:
+        last_ping = await db.locations.find_one(
+            {"tenant_id": user["tid"], "user_id": a["user_id"]},
+            sort=[("timestamp", -1)])
+        if last_ping:
+            out.append({
+                "user_id": a["user_id"],
+                "user_name": a.get("user_name", ""),
+                "lat": last_ping["lat"],
+                "lng": last_ping["lng"],
+                "timestamp": last_ping["timestamp"],
+                "check_in_at": a.get("check_in_at"),
+            })
+        else:
+            # Fallback to check-in location
+            if a.get("check_in_lat") is not None:
+                out.append({
+                    "user_id": a["user_id"],
+                    "user_name": a.get("user_name", ""),
+                    "lat": a["check_in_lat"],
+                    "lng": a["check_in_lng"],
+                    "timestamp": a.get("check_in_at"),
+                    "check_in_at": a.get("check_in_at"),
+                })
+    return {"items": out}
+
+
+# ==================== END PHASE 2 ====================
 
 
 # Include routes & CORS

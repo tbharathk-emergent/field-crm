@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useApp, getLabel } from "@/context/AppContext";
+import { postOrQueue } from "@/lib/offline";
 
 export default function Visit() {
   const { user, tenant, t } = useApp();
@@ -40,8 +41,9 @@ export default function Visit() {
       const loc = await new Promise(r => navigator.geolocation
         ? navigator.geolocation.getCurrentPosition(p => r({ lat: p.coords.latitude, lng: p.coords.longitude }), () => r({}), { timeout: 6000 })
         : r({}));
-      await api.post("/visits", { ...form, ...loc, visit_time: new Date().toISOString() });
-      toast.success("Visit submitted");
+      const payload = { ...form, ...loc, visit_time: new Date().toISOString() };
+      const res = await postOrQueue(api, "/visits", payload, "visit");
+      toast.success(res.offline ? "Saved offline — will sync when online" : "Visit submitted");
       setForm({ ...form, dealer_id: "", dealer_name: "", dealer_code: "", notes: "", orders_discussion: "", collection_discussion: "" });
       load();
     } catch (e) { toast.error("Failed"); }

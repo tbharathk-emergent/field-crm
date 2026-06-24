@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useApp, getLabel } from "@/context/AppContext";
+import { postOrQueue } from "@/lib/offline";
 
 const MODES = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
 
@@ -39,8 +40,8 @@ export default function Collection() {
   const submit = async () => {
     if (!form.dealer_id || !form.amount) return toast.error("Dealer & amount required");
     try {
-      await api.post("/collections", { ...form, amount: +form.amount });
-      toast.success("Collection recorded");
+      const res = await postOrQueue(api, "/collections", { ...form, amount: +form.amount }, "collection");
+      toast.success(res.offline ? "Saved offline — will sync" : "Collection recorded");
       setForm({ ...form, dealer_id: "", dealer_name: "", amount: 0, transaction_ref: "", remarks: "" });
       load();
     } catch { toast.error("Failed"); }

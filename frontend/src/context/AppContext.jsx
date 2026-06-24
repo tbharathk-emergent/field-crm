@@ -23,6 +23,10 @@ export function AppProvider({ children }) {
     return t ? JSON.parse(t) : null;
   });
   const [lang, setLang] = useState(() => localStorage.getItem("fc_lang") || "en");
+  const [permissions, setPermissions] = useState(() => {
+    const p = localStorage.getItem("fc_perms");
+    return p ? JSON.parse(p) : {};
+  });
 
   const t = useCallback((key) => translate(lang, key), [lang]);
 
@@ -31,6 +35,21 @@ export function AppProvider({ children }) {
   useEffect(() => {
     if (tenant) applyTenantTheme(tenant.theme);
   }, [tenant]);
+
+  // Load permissions on token change
+  useEffect(() => {
+    if (!token) { setPermissions({}); localStorage.removeItem("fc_perms"); return; }
+    api.get("/my-permissions").then((r) => {
+      const p = r.data?.permissions || {};
+      setPermissions(p);
+      localStorage.setItem("fc_perms", JSON.stringify(p));
+    }).catch(() => {});
+  }, [token]);
+
+  const can = useCallback((module, action = "read") => {
+    if (user?.role === "super_admin" || user?.role === "tenant_admin") return true;
+    return !!(permissions?.[module]?.[action]);
+  }, [permissions, user]);
 
   const setSlug = (slug) => {
     if (slug) localStorage.setItem("fc_tenant_slug", slug);
@@ -58,6 +77,7 @@ export function AppProvider({ children }) {
     localStorage.removeItem("fc_token");
     localStorage.removeItem("fc_user");
     localStorage.removeItem("fc_tenant");
+    localStorage.removeItem("fc_perms");
     setSlug(null);
   };
 
@@ -80,7 +100,7 @@ export function AppProvider({ children }) {
 
   return (
     <AppContext.Provider value={{
-      token, user, tenant, lang, setLang, t,
+      token, user, tenant, lang, setLang, t, permissions, can,
       loginSuccess, logout, loadPublicTenant, refreshTenant, applyTenantTheme,
     }}>
       {children}

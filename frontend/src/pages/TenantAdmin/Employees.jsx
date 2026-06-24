@@ -11,6 +11,8 @@ import { useApp, getLabel } from "@/context/AppContext";
 export default function Employees() {
   const { tenant, t } = useApp();
   const [list, setList] = useState([]);
+  const [roles, setRoles] = useState([]);
+  const [areas, setAreas] = useState([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
@@ -19,8 +21,12 @@ export default function Employees() {
   const fileRef = useRef(null);
 
   const load = async () => {
-    const res = await api.get("/tenant/users", { params: { role: "tenant_admin,manager,employee" } });
-    setList(res.data);
+    const [u, r, a] = await Promise.all([
+      api.get("/tenant/users", { params: { role: "tenant_admin,manager,employee" } }),
+      api.get("/roles"),
+      api.get("/areas"),
+    ]);
+    setList(u.data); setRoles(r.data); setAreas(a.data);
   };
   useEffect(() => { load(); }, []);
 
@@ -31,7 +37,7 @@ export default function Employees() {
     return true;
   });
 
-  const blank = { phone: "", name: "", role: "employee", email: "", employee_code: "", manager_id: "", area: "" };
+  const blank = { phone: "", name: "", role: "employee", email: "", employee_code: "", manager_id: "", area: "", role_id: "", area_node_id: "" };
   const openCreate = () => { setEditing(null); setForm(blank); setOpen(true); };
   const openEdit = (u) => { setEditing(u); setForm({ ...u }); setOpen(true); };
 
@@ -163,6 +169,22 @@ export default function Employees() {
                 </Select>
               </div>
             )}
+            <div>
+              <Label>Custom Role</Label>
+              <Select value={form.role_id || ""} onValueChange={(v) => setForm({ ...form, role_id: v })}>
+                <SelectTrigger data-testid="user-roleid"><SelectValue placeholder="None" /></SelectTrigger>
+                <SelectContent>{roles.map((r) => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Area Assignment</Label>
+              <Select value={form.area_node_id || ""} onValueChange={(v) => setForm({ ...form, area_node_id: v })}>
+                <SelectTrigger data-testid="user-areanode"><SelectValue placeholder="None" /></SelectTrigger>
+                <SelectContent>
+                  {areas.map((a) => <SelectItem key={a.id} value={a.id}>{"·".repeat((a.path || []).length)} {a.name} ({a.type})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <button onClick={() => setOpen(false)} className="px-4 py-2 rounded-lg border border-brand-line">Cancel</button>

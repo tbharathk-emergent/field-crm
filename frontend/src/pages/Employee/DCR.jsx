@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useApp } from "@/context/AppContext";
+import { postOrQueue } from "@/lib/offline";
 
 export default function DCR() {
   const { t } = useApp();
@@ -18,12 +19,13 @@ export default function DCR() {
 
   const submit = async () => {
     try {
-      await api.post("/dcr", {
+      const payload = {
         ...form,
         dealers_visited: +form.dealers_visited, customers_met: +form.customers_met,
         orders_booked: +form.orders_booked, collections_made: +form.collections_made,
-      });
-      toast.success("DCR submitted");
+      };
+      const res = await postOrQueue(api, "/dcr", payload, "dcr");
+      toast.success(res.offline ? "Saved offline — will sync" : "DCR submitted");
       load();
     } catch { toast.error("Failed"); }
   };

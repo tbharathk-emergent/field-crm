@@ -1,0 +1,45 @@
+{
+  "summary": "Phase 2 testing: 23/23 backend pytest passed (areas, roles, permissions, leaves with hierarchy enforcement, targets, batch sync, GPS track + live). Frontend Tenant Admin pages (Areas, Roles, Targets, Leaves, Employees Add) all working with proper data-testids, modals open, seeded data visible. Employee PWA: target card and Tracking-GPS status work; Leaves tile is present BUT clicking it navigates to /app/notifications instead of /app/leaves.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Employee/Home.jsx — card-leaves tile",
+        "issue": "Clicking the Leaves tile on Employee home navigates to /t/demo/app/notifications instead of /t/demo/app/leaves. The data-testid='card-leaves' element has the wrong link/onClick handler (likely the leaves card uses the notifications route).",
+        "selector": "[data-testid='card-leaves']",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase2.py",
+    "/app/test_reports/pytest/phase2_results.xml"
+  ],
+  "action_items": [
+    "Fix Employee Home Leaves tile (data-testid=card-leaves) routing — it currently navigates to /app/notifications. Update the Link 'to' or onClick handler in /app/frontend/src/pages/Employee/Home.jsx so the Leaves card opens /t/{slug}/app/leaves."
+  ],
+  "critical_code_review_comments": [
+    "server.py is ~1747 lines — consider splitting Phase 2 endpoints (areas, roles, leaves, targets, sync, gps) into routers/ submodules for maintainability.",
+    "PATCH /api/areas ignores parent_id changes — moving a node in the tree is not supported (path won't update). OK for MVP but document the limitation.",
+    "_is_in_hierarchy_above walks the chain via manager_id loops with visited set — good, but tenant_admin override happens before chain walk, which is correct; consider adding role='super_admin' bypass for symmetry if SA ever decides leaves.",
+    "batch sync /api/sync/batch does not dedupe on client_id — repeated submissions with same client_id will create duplicate records. Add lookup against an idempotency table or store client_id on each record."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase2.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (23/23)",
+    "frontend": "~92% (1 routing bug on Leaves tile)"
+  },
+  "test_credentials": "From /app/memory/test_credentials.md — Tenant Admin 9000000001, Manager 9000000002, Employee 9000000003, Employee2 9000000005; OTP 123456 / tenant 'demo'. Super Admin 9858558555 OTP 557725.",
+  "seed_data_creation": "Tests create TEST_-prefixed users, areas, roles, leaves and clean them up via DELETE endpoints. A TEST_Emp Updated and TEST_RoleArea may persist from prior iteration; harmless.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 2 backend is solid (23/23 pytest pass) including hierarchy-based leave approval (403 for non-chain managers), GPS clustering, sync batch with mixed types, targets progress, role permission overlay. Frontend Tenant Admin pages all good (Areas tree shows 8 seeded nodes, Roles modal exposes perm-{module}-read/write toggles, Targets shows Anil/Priya rows with per-row save, Employees Add modal exposes 'Custom Role' and 'Area Assignment' selects). The one real bug found: Employee Home Leaves tile (card-leaves) navigates to /app/notifications. After fix, re-test by logging in as 9000000003 and clicking the Leaves tile — it should go to /t/demo/app/leaves and show the Apply button + existing pending TEST_403 / approved TEST_leave from this test run. Employee Check-In already started during testing — 'Tracking GPS' status is visible on Home and target card shows ₹300/₹55,000 = 0.5%.",
+  "rca of the issue": "Likely a copy-paste in Employee/Home.jsx where the Leaves card uses the wrong route prop (probably reused the Notifications card's 'to' prop). Inspect the JSX for data-testid='card-leaves' and confirm its Link/href points to `/t/${slug}/app/leaves` (not `/notifications`)."
+}

@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useApp, getLabel } from "@/context/AppContext";
+import { postOrQueue } from "@/lib/offline";
 
 export default function Enquiry() {
   const { tenant, t } = useApp();
@@ -17,8 +18,8 @@ export default function Enquiry() {
   const submit = async () => {
     if (!form.customer_name) return toast.error("Name required");
     try {
-      await api.post("/enquiries", form);
-      toast.success("Enquiry created");
+      const res = await postOrQueue(api, "/enquiries", form, "enquiry");
+      toast.success(res.offline ? "Saved offline — will sync" : "Enquiry created");
       setForm({ customer_name: "", mobile: "", village: "", district: "", category: "", description: "" });
       load();
     } catch { toast.error("Failed"); }

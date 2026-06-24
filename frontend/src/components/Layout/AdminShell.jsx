@@ -3,8 +3,10 @@ import { NavLink, Outlet, useNavigate, useParams } from "react-router-dom";
 import {
   LayoutDashboard, Building2, Tag, Settings, LogOut, Users, Store, Package,
   ShoppingBag, MessageSquare, BarChart3, Palette, Megaphone, MapPin,
+  Globe, Shield, Target as TargetIcon, CalendarDays,
 } from "lucide-react";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import OfflineIndicator from "@/components/OfflineIndicator";
 import TenantLogo from "@/components/TenantLogo";
 import { useApp, getLabel } from "@/context/AppContext";
 
@@ -18,9 +20,13 @@ const NAV = {
   tenant_admin: (slug, tenant) => [
     { to: `/t/${slug}/admin`, icon: LayoutDashboard, key: "dashboard", end: true },
     { to: `/t/${slug}/admin/branding`, icon: Palette, key: "branding" },
+    { to: `/t/${slug}/admin/areas`, icon: Globe, label: "Areas" },
+    { to: `/t/${slug}/admin/roles`, icon: Shield, label: "Roles" },
     { to: `/t/${slug}/admin/employees`, icon: Users, key: "employees" },
     { to: `/t/${slug}/admin/dealers`, icon: Store, label: getLabel(tenant, "dealer_plural", "Dealers") },
     { to: `/t/${slug}/admin/products`, icon: Package, label: getLabel(tenant, "product_plural", "Products") },
+    { to: `/t/${slug}/admin/targets`, icon: TargetIcon, label: "Targets" },
+    { to: `/t/${slug}/admin/leaves`, icon: CalendarDays, label: "Leaves" },
     { to: `/t/${slug}/admin/orders`, icon: ShoppingBag, key: "orders" },
     { to: `/t/${slug}/admin/enquiries`, icon: MessageSquare, key: "enquiries" },
     { to: `/t/${slug}/admin/reports`, icon: BarChart3, key: "reports" },
@@ -30,6 +36,8 @@ const NAV = {
     { to: `/t/${slug}/manager`, icon: LayoutDashboard, key: "dashboard", end: true },
     { to: `/t/${slug}/manager/team`, icon: Users, key: "employees" },
     { to: `/t/${slug}/manager/map`, icon: MapPin, label: "GPS" },
+    { to: `/t/${slug}/manager/targets`, icon: TargetIcon, label: "Targets" },
+    { to: `/t/${slug}/manager/leaves`, icon: CalendarDays, label: "Leaves" },
     { to: `/t/${slug}/manager/reports`, icon: BarChart3, key: "reports" },
   ],
 };
@@ -106,6 +114,7 @@ export default function AdminShell({ role }) {
               {t("welcome")}, <span className="text-brand-ink font-medium">{user?.name}</span>
             </div>
             <div className="flex items-center gap-2">
+              <OfflineIndicator />
               <LanguageSwitcher compact />
               <button
                 data-testid="logout-mobile-btn"

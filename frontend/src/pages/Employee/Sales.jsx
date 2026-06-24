@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useApp, getLabel } from "@/context/AppContext";
+import { postOrQueue } from "@/lib/offline";
 
 export default function Sales() {
   const { user, tenant, t } = useApp();
@@ -40,11 +41,10 @@ export default function Sales() {
   const submit = async () => {
     if (!form.dealer_id || !form.product_id) return toast.error("Select dealer & product");
     try {
-      await api.post("/sales", {
-        ...form, quantity: +form.quantity, unit_price: +form.unit_price,
-        value: +form.quantity * +form.unit_price,
-      });
-      toast.success("Sale recorded");
+      const payload = { ...form, quantity: +form.quantity, unit_price: +form.unit_price,
+                        value: +form.quantity * +form.unit_price };
+      const res = await postOrQueue(api, "/sales", payload, "sales");
+      toast.success(res.offline ? "Saved offline — will sync" : "Sale recorded");
       load();
     } catch { toast.error("Failed"); }
   };

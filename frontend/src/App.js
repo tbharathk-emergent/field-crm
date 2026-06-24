@@ -27,6 +27,10 @@ import AdminOrders from "@/pages/TenantAdmin/Orders";
 import AdminEnquiries from "@/pages/TenantAdmin/Enquiries";
 import AdminReports from "@/pages/TenantAdmin/Reports";
 import AdminAnnouncements from "@/pages/TenantAdmin/Announcements";
+import AdminAreas from "@/pages/TenantAdmin/Areas";
+import AdminRoles from "@/pages/TenantAdmin/Roles";
+import AdminTargets from "@/pages/TenantAdmin/Targets";
+import AdminLeaves from "@/pages/TenantAdmin/Leaves";
 
 // Manager
 import ManagerDashboard from "@/pages/Manager/Dashboard";
@@ -45,6 +49,7 @@ import EmpEnquiry from "@/pages/Employee/Enquiry";
 import EmpCatalogue from "@/pages/Employee/Catalogue";
 import EmpNotifications from "@/pages/Employee/Notifications";
 import EmpProfile from "@/pages/Employee/Profile";
+import EmpLeaves from "@/pages/Employee/Leaves";
 
 // Customer PWA
 import CustHome from "@/pages/Customer/Home";
@@ -94,6 +99,10 @@ function App() {
             <Route path="enquiries" element={<AdminEnquiries />} />
             <Route path="reports" element={<AdminReports />} />
             <Route path="announcements" element={<AdminAnnouncements />} />
+            <Route path="areas" element={<AdminAreas />} />
+            <Route path="roles" element={<AdminRoles />} />
+            <Route path="targets" element={<AdminTargets />} />
+            <Route path="leaves" element={<AdminLeaves />} />
           </Route>
 
           {/* Manager */}
@@ -111,6 +120,8 @@ function App() {
             <Route path="team" element={<ManagerTeam />} />
             <Route path="map" element={<ManagerMap />} />
             <Route path="reports" element={<ManagerReports />} />
+            <Route path="targets" element={<AdminTargets />} />
+            <Route path="leaves" element={<AdminLeaves />} />
           </Route>
 
           {/* Employee PWA */}
@@ -134,6 +145,7 @@ function App() {
             <Route path="catalogue" element={<EmpCatalogue />} />
             <Route path="notifications" element={<EmpNotifications />} />
             <Route path="profile" element={<EmpProfile />} />
+            <Route path="leaves" element={<EmpLeaves />} />
           </Route>
 
           {/* Customer PWA */}

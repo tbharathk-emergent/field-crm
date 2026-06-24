@@ -89,9 +89,12 @@ class User(BaseModel):
     name: str = ""
     email: Optional[str] = None
     role: str = "employee"
+    role_id: Optional[str] = None  # custom role with permissions (Phase 2)
     employee_code: Optional[str] = None
     manager_id: Optional[str] = None  # only for employees
     area: Optional[str] = None
+    area_node_id: Optional[str] = None  # Phase 2 - assignment in area hierarchy
+    leave_balance: float = 12.0  # days/year, Phase 2
     is_active: bool = True
     profile_photo_path: Optional[str] = None
     language: str = "en"
@@ -340,4 +343,77 @@ class PlatformSettings(BaseModel):
     sms_api_key: Optional[str] = None
     sms_sender_id: Optional[str] = None
     whatsapp_enabled: bool = False
+    updated_at: str = Field(default_factory=now_iso)
+
+
+
+# ---------- Phase 2: Area Hierarchy ----------
+# type: country | state | district | area
+class AreaNode(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    tenant_id: str
+    name: str
+    type: str  # country | state | district | area
+    parent_id: Optional[str] = None
+    path: List[str] = []  # ancestor IDs from root → self.parent
+    code: Optional[str] = None
+    is_active: bool = True
+    created_at: str = Field(default_factory=now_iso)
+
+
+# ---------- Phase 2: Custom Roles & Permissions ----------
+PERMISSION_MODULES = [
+    "visits", "sales", "collections", "dcr", "enquiries", "orders",
+    "dealers", "products", "employees", "reports", "gps", "leaves",
+    "targets", "announcements", "areas", "roles", "branding",
+]
+
+
+class Role(BaseModel):
+    """Custom role within a tenant. Built-in roles (tenant_admin, manager, employee)
+    bypass these permissions; custom roles refine an employee's access."""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    tenant_id: str
+    name: str
+    description: Optional[str] = None
+    # { module: { "read": bool, "write": bool } }
+    permissions: Dict[str, Dict[str, bool]] = {}
+    is_active: bool = True
+    is_default: bool = False
+    created_at: str = Field(default_factory=now_iso)
+
+
+# ---------- Phase 2: Leaves ----------
+class LeaveRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    tenant_id: str
+    employee_id: str
+    employee_name: str = ""
+    leave_type: str = "casual"  # casual | sick | earned | unpaid
+    from_date: str  # YYYY-MM-DD
+    to_date: str
+    days: float = 1.0
+    reason: Optional[str] = None
+    status: str = "pending"  # pending | approved | rejected | cancelled
+    approver_id: Optional[str] = None
+    approver_name: Optional[str] = None
+    approver_comments: Optional[str] = None
+    decided_at: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
+
+
+# ---------- Phase 2: Targets ----------
+class Target(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    tenant_id: str
+    user_id: str  # employee whose target this is
+    user_name: str = ""
+    month: str  # YYYY-MM
+    sales_target: float = 0.0
+    set_by: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
