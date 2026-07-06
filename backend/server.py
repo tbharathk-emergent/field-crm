@@ -43,9 +43,36 @@ app = FastAPI(title="FieldCRM SaaS API")
 api = APIRouter(prefix="/api")
 
 # ---------------- Startup ----------------
+async def ensure_indexes():
+    """Create unique indexes so multi-worker seed races cannot produce duplicates."""
+    await db.tenants.create_index("slug", unique=True)
+    await db.tenants.create_index("id", unique=True)
+    await db.plans.create_index("code", unique=True)
+    await db.plans.create_index("id", unique=True)
+    # Phone is unique WITHIN a tenant (super_admin has tenant_id=None so we allow one SA per phone)
+    await db.users.create_index([("tenant_id", 1), ("phone", 1)], unique=True)
+    await db.users.create_index("id", unique=True)
+    await db.roles.create_index([("tenant_id", 1), ("name", 1)], unique=True)
+    await db.areas.create_index("id", unique=True)
+    await db.products.create_index("id", unique=True)
+    await db.visits.create_index("id", unique=True)
+    await db.sales.create_index("id", unique=True)
+    await db.collections.create_index("id", unique=True)
+    await db.orders.create_index("id", unique=True)
+    await db.leaves.create_index("id", unique=True)
+    await db.targets.create_index([("tenant_id", 1), ("user_id", 1), ("month", 1)], unique=True)
+    await db.attendance.create_index([("tenant_id", 1), ("user_id", 1), ("date", 1)], unique=True)
+    await db.locations.create_index([("tenant_id", 1), ("user_id", 1), ("timestamp", 1)])
+
+
 @app.on_event("startup")
 async def startup():
-    await seed_all(db)
+    await ensure_indexes()
+    try:
+        await seed_all(db)
+    except Exception as e:
+        # Race conditions during multi-worker seeding are expected; duplicates are rejected by unique indexes.
+        logger.warning(f"Seed skipped/partial: {e}")
     try:
         storage.init_storage()
         logger.info("Storage initialized")

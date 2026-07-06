@@ -1,10 +1,20 @@
-"""Seed default plans, demo tenant, demo users."""
+"""Seed default plans, demo tenant, demo users. Safe under multi-worker startup:
+all duplicate-key errors are silently swallowed since unique indexes protect us."""
 import os
 from datetime import datetime, timezone, timedelta
+from pymongo.errors import DuplicateKeyError
 from models import (
     Plan, Tenant, TenantTheme, TenantLabels, User, Product, PlatformSettings,
     AreaNode, Role, Target, PERMISSION_MODULES, now_iso, gen_id,
 )
+
+
+async def _safe_insert(coll, doc):
+    try:
+        await coll.insert_one(doc)
+        return True
+    except DuplicateKeyError:
+        return False
 
 
 DEFAULT_PLANS = [
@@ -32,11 +42,11 @@ async def seed_all(db):
     if await db.plans.count_documents({}) == 0:
         for p in DEFAULT_PLANS:
             plan = Plan(**p)
-            await db.plans.insert_one(plan.model_dump())
+            await _safe_insert(db.plans, plan.model_dump())
 
     # 2) Platform settings
     if await db.platform_settings.find_one({"id": "platform"}) is None:
-        await db.platform_settings.insert_one(PlatformSettings().model_dump())
+        await _safe_insert(db.platform_settings, PlatformSettings().model_dump())
 
     # 3) Super admin user
     sa_phone = os.environ.get("SUPER_ADMIN_PHONE", "9858558555")
@@ -44,7 +54,7 @@ async def seed_all(db):
     if not existing_sa:
         sa = User(phone=sa_phone, name="Super Admin", role="super_admin", tenant_id=None,
                   email="admin@localappstore.in")
-        await db.users.insert_one(sa.model_dump())
+        await _safe_insert(db.users, sa.model_dump())
 
     # 4) Demo tenant
     demo_tenant = await db.tenants.find_one({"slug": "demo"})
@@ -66,27 +76,27 @@ async def seed_all(db):
             contact_phone="9000000001",
             address="Hyderabad, Telangana",
         )
-        await db.tenants.insert_one(tenant.model_dump())
+        await _safe_insert(db.tenants, tenant.model_dump())
         tenant_id = tenant.id
 
         # 5) Demo users for the demo tenant
         admin = User(tenant_id=tenant_id, phone="9000000001", name="Ravi Kumar",
                      role="tenant_admin", email="admin@akshara.demo")
-        await db.users.insert_one(admin.model_dump())
+        await _safe_insert(db.users, admin.model_dump())
 
         manager = User(tenant_id=tenant_id, phone="9000000002", name="Suresh Reddy",
                        role="manager", employee_code="MGR001", area="Telangana")
-        await db.users.insert_one(manager.model_dump())
+        await _safe_insert(db.users, manager.model_dump())
 
         employee = User(tenant_id=tenant_id, phone="9000000003", name="Anil Sharma",
                         role="employee", employee_code="EMP001",
                         manager_id=manager.id, area="Hyderabad North")
-        await db.users.insert_one(employee.model_dump())
+        await _safe_insert(db.users, employee.model_dump())
 
         employee2 = User(tenant_id=tenant_id, phone="9000000005", name="Priya Patel",
                          role="employee", employee_code="EMP002",
                          manager_id=manager.id, area="Hyderabad South")
-        await db.users.insert_one(employee2.model_dump())
+        await _safe_insert(db.users, employee2.model_dump())
 
         customer = User(tenant_id=tenant_id, phone="9000000004", name="Ramesh Naidu",
                         role="customer", business_name="Naidu Krishi Kendra",
@@ -94,7 +104,7 @@ async def seed_all(db):
                         district="Karimnagar", state="Telangana", pincode="505001",
                         assigned_employee_id=employee.id, credit_limit=50000,
                         outstanding_amount=12500)
-        await db.users.insert_one(customer.model_dump())
+        await _safe_insert(db.users, customer.model_dump())
 
         customer2 = User(tenant_id=tenant_id, phone="9000000006", name="Lakshmi Devi",
                          role="customer", business_name="Devi Agro Centre",
@@ -102,7 +112,7 @@ async def seed_all(db):
                          district="Warangal", state="Telangana", pincode="506001",
                          assigned_employee_id=employee.id, credit_limit=30000,
                          outstanding_amount=5000)
-        await db.users.insert_one(customer2.model_dump())
+        await _safe_insert(db.users, customer2.model_dump())
 
         # 6) Demo products
         sample_products = [
@@ -124,32 +134,32 @@ async def seed_all(db):
         ]
         for sp in sample_products:
             prod = Product(tenant_id=tenant_id, **sp)
-            await db.products.insert_one(prod.model_dump())
+            await _safe_insert(db.products, prod.model_dump())
 
         # 7) Phase 2: Area Hierarchy (Country → State → District → Area)
         india = AreaNode(tenant_id=tenant_id, name="India", type="country", path=[])
-        await db.areas.insert_one(india.model_dump())
+        await _safe_insert(db.areas, india.model_dump())
         telangana = AreaNode(tenant_id=tenant_id, name="Telangana", type="state",
                               parent_id=india.id, path=[india.id])
-        await db.areas.insert_one(telangana.model_dump())
+        await _safe_insert(db.areas, telangana.model_dump())
         ap = AreaNode(tenant_id=tenant_id, name="Andhra Pradesh", type="state",
                       parent_id=india.id, path=[india.id])
-        await db.areas.insert_one(ap.model_dump())
+        await _safe_insert(db.areas, ap.model_dump())
         hyd = AreaNode(tenant_id=tenant_id, name="Hyderabad", type="district",
                        parent_id=telangana.id, path=[india.id, telangana.id])
-        await db.areas.insert_one(hyd.model_dump())
+        await _safe_insert(db.areas, hyd.model_dump())
         wgl = AreaNode(tenant_id=tenant_id, name="Warangal", type="district",
                        parent_id=telangana.id, path=[india.id, telangana.id])
-        await db.areas.insert_one(wgl.model_dump())
+        await _safe_insert(db.areas, wgl.model_dump())
         krg = AreaNode(tenant_id=tenant_id, name="Karimnagar", type="district",
                        parent_id=telangana.id, path=[india.id, telangana.id])
-        await db.areas.insert_one(krg.model_dump())
+        await _safe_insert(db.areas, krg.model_dump())
         hyd_n = AreaNode(tenant_id=tenant_id, name="Hyderabad North", type="area",
                          parent_id=hyd.id, path=[india.id, telangana.id, hyd.id])
-        await db.areas.insert_one(hyd_n.model_dump())
+        await _safe_insert(db.areas, hyd_n.model_dump())
         hyd_s = AreaNode(tenant_id=tenant_id, name="Hyderabad South", type="area",
                          parent_id=hyd.id, path=[india.id, telangana.id, hyd.id])
-        await db.areas.insert_one(hyd_s.model_dump())
+        await _safe_insert(db.areas, hyd_s.model_dump())
 
         # Assign areas to demo users
         await db.users.update_one({"id": manager.id}, {"$set": {"area_node_id": telangana.id}})
@@ -168,7 +178,7 @@ async def seed_all(db):
         sales_role = Role(tenant_id=tenant_id, name="Sales Executive",
                           description="Standard field sales staff with full activity write access",
                           permissions=sales_role_perm, is_default=True)
-        await db.roles.insert_one(sales_role.model_dump())
+        await _safe_insert(db.roles, sales_role.model_dump())
 
         readonly_perm = {m: {"read": False, "write": False} for m in PERMISSION_MODULES}
         for m in ("visits", "sales", "collections", "dcr", "enquiries", "dealers", "products", "leaves"):
@@ -176,7 +186,7 @@ async def seed_all(db):
         readonly_role = Role(tenant_id=tenant_id, name="Read-Only Observer",
                              description="Can see entries but not create them",
                              permissions=readonly_perm)
-        await db.roles.insert_one(readonly_role.model_dump())
+        await _safe_insert(db.roles, readonly_role.model_dump())
 
         # Assign default sales role to seeded employees
         await db.users.update_one({"id": employee.id}, {"$set": {"role_id": sales_role.id}})
@@ -188,7 +198,7 @@ async def seed_all(db):
                                        (employee2.id, employee2.name, 40000)]:
             t = Target(tenant_id=tenant_id, user_id=emp_id, user_name=emp_name,
                        month=cur_month, sales_target=tgt)
-            await db.targets.insert_one(t.model_dump())
+            await _safe_insert(db.targets, t.model_dump())
 
 
 
@@ -199,28 +209,28 @@ async def seed_all(db):
         # If no areas yet for this tenant, build hierarchy + assign employees
         if await db.areas.count_documents({"tenant_id": tid}) == 0:
             india = AreaNode(tenant_id=tid, name="India", type="country", path=[])
-            await db.areas.insert_one(india.model_dump())
+            await _safe_insert(db.areas, india.model_dump())
             telangana = AreaNode(tenant_id=tid, name="Telangana", type="state",
                                   parent_id=india.id, path=[india.id])
-            await db.areas.insert_one(telangana.model_dump())
+            await _safe_insert(db.areas, telangana.model_dump())
             ap = AreaNode(tenant_id=tid, name="Andhra Pradesh", type="state",
                           parent_id=india.id, path=[india.id])
-            await db.areas.insert_one(ap.model_dump())
+            await _safe_insert(db.areas, ap.model_dump())
             hyd = AreaNode(tenant_id=tid, name="Hyderabad", type="district",
                            parent_id=telangana.id, path=[india.id, telangana.id])
-            await db.areas.insert_one(hyd.model_dump())
+            await _safe_insert(db.areas, hyd.model_dump())
             wgl = AreaNode(tenant_id=tid, name="Warangal", type="district",
                            parent_id=telangana.id, path=[india.id, telangana.id])
-            await db.areas.insert_one(wgl.model_dump())
+            await _safe_insert(db.areas, wgl.model_dump())
             krg = AreaNode(tenant_id=tid, name="Karimnagar", type="district",
                            parent_id=telangana.id, path=[india.id, telangana.id])
-            await db.areas.insert_one(krg.model_dump())
+            await _safe_insert(db.areas, krg.model_dump())
             hyd_n = AreaNode(tenant_id=tid, name="Hyderabad North", type="area",
                              parent_id=hyd.id, path=[india.id, telangana.id, hyd.id])
-            await db.areas.insert_one(hyd_n.model_dump())
+            await _safe_insert(db.areas, hyd_n.model_dump())
             hyd_s = AreaNode(tenant_id=tid, name="Hyderabad South", type="area",
                              parent_id=hyd.id, path=[india.id, telangana.id, hyd.id])
-            await db.areas.insert_one(hyd_s.model_dump())
+            await _safe_insert(db.areas, hyd_s.model_dump())
 
             # Assign by phone (idempotent)
             await db.users.update_one({"tenant_id": tid, "phone": "9000000002"},
@@ -239,7 +249,7 @@ async def seed_all(db):
             sales_role = Role(tenant_id=tid, name="Sales Executive",
                               description="Standard field sales staff with full activity write access",
                               permissions=sales_role_perm, is_default=True)
-            await db.roles.insert_one(sales_role.model_dump())
+            await _safe_insert(db.roles, sales_role.model_dump())
 
             readonly_perm = {m: {"read": False, "write": False} for m in PERMISSION_MODULES}
             for m in ("visits", "sales", "collections", "dcr", "enquiries",
@@ -248,7 +258,7 @@ async def seed_all(db):
             readonly_role = Role(tenant_id=tid, name="Read-Only Observer",
                                  description="Can see entries but not create them",
                                  permissions=readonly_perm)
-            await db.roles.insert_one(readonly_role.model_dump())
+            await _safe_insert(db.roles, readonly_role.model_dump())
 
             await db.users.update_one({"tenant_id": tid, "phone": "9000000003"},
                                       {"$set": {"role_id": sales_role.id}})
@@ -265,4 +275,4 @@ async def seed_all(db):
             if not existing:
                 t = Target(tenant_id=tid, user_id=udoc["id"],
                            user_name=udoc.get("name", ""), month=cur_month, sales_target=tgt)
-                await db.targets.insert_one(t.model_dump())
+                await _safe_insert(db.targets, t.model_dump())
