@@ -32,7 +32,7 @@ const TYPE_META = {
 };
 
 export default function CropAdvisor() {
-  const { user, tenant, hasFeature, t } = useApp();
+  const { user, tenant, hasFeature, t, refreshMe } = useApp();
   const navigate = useNavigate();
   const { slug } = useParams();
   const params = new URLSearchParams(window.location.search);
@@ -162,6 +162,7 @@ export default function CropAdvisor() {
       setSavingCrops(true);
       try {
         await api.patch("/me/my-crops", { crop_ids: myCrops });
+        if (refreshMe) await refreshMe();
         toast.success("Saved");
         go("home");
       } catch { toast.error("Failed"); }

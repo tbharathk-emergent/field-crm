@@ -1809,6 +1809,13 @@ class MyCropsIn(BaseModel):
 
 @api.patch("/me/my-crops")
 async def set_my_crops(payload: MyCropsIn, user: dict = Depends(get_current_user)):
+    # Validate crop_ids belong to this tenant
+    if payload.crop_ids:
+        valid = await db.crops.count_documents({
+            "tenant_id": user["tid"], "id": {"$in": payload.crop_ids}, "is_active": True,
+        })
+        if valid != len(set(payload.crop_ids)):
+            raise HTTPException(400, "Some crop_ids are invalid for this tenant")
     await db.users.update_one({"id": user["sub"]}, {"$set": {"my_crops": payload.crop_ids}})
     u = await db.users.find_one({"id": user["sub"]})
     return clean(u)
