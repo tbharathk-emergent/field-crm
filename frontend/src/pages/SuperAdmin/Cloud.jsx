@@ -20,6 +20,19 @@ const TABS = [
   { key: "tenants", label: "Tenants", icon: Send },
 ];
 
+/**
+ * Extract a user-readable string from an axios error. Handles the three shapes
+ * the backend may return: legacy `detail: "string"`, Phase 2/3/4 structured
+ * `detail: {code, message}`, and network/timeout errors with no response.
+ */
+function formatDetail(err, fallback = "Something went wrong") {
+  const d = err?.response?.data?.detail;
+  if (typeof d === "string") return d;
+  if (d && typeof d === "object") return d.message || d.code || fallback;
+  if (err?.message) return err.message;
+  return fallback;
+}
+
 export default function Cloud() {
   const [tab, setTab] = useState("aws");
 
@@ -109,7 +122,7 @@ function AwsSection() {
       setSaved(r2.data);
       setForm({ ...form, aws_secret_access_key: "" });
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Save failed");
+      toast.error(formatDetail(e, "Save failed"));
     } finally { setSaving(false); }
   };
 
@@ -183,7 +196,7 @@ function FirebaseSection() {
       toast.success("Deleted");
       load();
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Delete failed");
+      toast.error(formatDetail(e, "Delete failed"));
     }
   };
 
@@ -276,7 +289,7 @@ function AddFirebaseModal({ onClose, onCreated }) {
       toast.success("Firebase project added");
       onCreated();
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Failed to add");
+      toast.error(formatDetail(e, "Failed to add"));
     } finally { setBusy(false); }
   };
 
@@ -386,7 +399,7 @@ function PlatformCard({ platform, app, projects, tenantId, onChanged }) {
       await api.delete(`/super/tenants/${tenantId}/firebase-config/${platform}`);
       toast.success(`${platform} unbound`);
       onChanged();
-    } catch (e) { toast.error(e?.response?.data?.detail || "Failed"); }
+    } catch (e) { toast.error(formatDetail(e, "Failed")); }
   };
 
   return (
@@ -474,7 +487,7 @@ function ExistingModal({ platform, app, projects, tenantId, onClose, onSaved }) 
       });
       toast.success(`${platform} config saved`);
       onSaved();
-    } catch (e) { toast.error(e?.response?.data?.detail || "Failed"); }
+    } catch (e) { toast.error(formatDetail(e, "Failed")); }
     finally { setBusy(false); }
   };
 
@@ -597,7 +610,7 @@ function PushTest({ tenantId, tenantName }) {
       else if (r.data.disabled) toast.warning(`Disabled — ${r.data.disabled.slice(0, 100)}`);
       else toast.info(`Attempted ${r.data.tokens_targeted} tokens`);
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Failed");
+      toast.error(formatDetail(e, "Failed"));
     } finally { setBusy(false); }
   };
 

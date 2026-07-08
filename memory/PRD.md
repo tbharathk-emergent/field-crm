@@ -215,3 +215,47 @@ Layering "Bizil-Pattern" scaffolding onto the existing MVP. **Golden rule: addit
 - `testing_agent_v3_fork` **iteration_6.json → 100% (18/18)** — all seven phases validated end-to-end against live REACT_APP_BACKEND_URL.
 - Full backend pytest: **164 / 164 green** (146 pre-existing + 18 regression suite).
 
+### ✅ Phase 8 — Cloud Credentials UI + Per-Tenant Firebase + Test Push (Feb 8, 2026)
+
+**User-reported gaps addressed**
+- **Bug**: "there is no option for firebase service account file uploading in super admin" ✅
+- **Bug**: "check the aws keys provision in super admin" ✅
+- **Feature**: "need to provide a test push notification provision for each tenant in super admin" ✅
+
+**Backend**
+- New `s3_presign.apply_runtime_credentials()` + in-process override — AWS creds saved via UI apply immediately, no restart.
+- `platform_settings.aws_credentials` doc; hydrated on startup by `_hydrate_cloud_credentials()`.
+- New models: `FirebaseProject` (project_id + service_account_json + capacity), `TenantFirebaseApp` (per platform), `TenantFirebaseConfig` (android + ios). Additive; backward-compat with env-based `Tenant.fcm_shard_id`.
+- New `firebase_provisioning.py` — real-time Firebase Management API v1beta1: create iOS/Android app + LRO polling + config download. `create_app()` returns `{ok, error?}`, NEVER raises.
+- `fcm_service.send_to_tokens()` now accepts optional `service_account_json + project_id` for per-tenant Firebase; falls back to env shard when absent.
+- `_dispatch_to_tenant()` prefers per-tenant DB config, falls back to env shard — includes `source` field in the response.
+
+**Backend endpoints (super_admin only)**
+- `GET/PUT /api/super/aws-credentials` (secret always masked on read; `head_bucket` verify on save).
+- `GET/POST/DELETE /api/super/firebase-projects` + `POST .../refresh`. Sparse-unique on `project_id`, 409 on duplicate.
+- `GET/PUT /api/super/tenants/{id}/firebase-config` + `DELETE .../{platform}` — per-platform independence for mixed scenarios (android existing + ios auto, etc.).
+- `POST /api/super/tenants/{id}/firebase-config/provision` — real-time Firebase Management API app creation. Errors captured in `provisioning_error` field (deferred fallback path).
+- `POST /api/super/tenants/{id}/push/test` — super-admin per-tenant test push with optional `dry_run_token` for tenants that have no real devices yet.
+
+**Frontend — Super Admin → Cloud (`/super-admin/cloud`)**
+- Three tabs: AWS S3, Firebase Projects, Tenants.
+- AWS section: 5 inputs + save; live head_bucket verification badge; secret shown masked after save.
+- Firebase Projects: add via JSON file upload OR paste; capacity bar per project (X/30); tenants_bound counter; refresh (calls Management API to re-count remote apps); delete blocked when bound.
+- Tenants tab: sidebar list + two PlatformCards (Android/iOS) with "Existing" / "Auto-provisioned" / "Not configured" chips; independent per-platform edit/unbind; auto-provision modal with capacity-aware dropdown; error red-banner on failure.
+- Test Push card per tenant with title/body/dry_run_token → live send with JSON result panel.
+- Central `formatDetail()` helper prevents any `[object Object]` toast from Phase 2/3/4 structured errors.
+
+**Testing**
+- `tests/test_phase8_cloud_firebase.py`: **11/11 green** — AWS 403 for non-super / GET masks / PUT applies at runtime with real bucket verification / presign returns real signed URL with `media.localappstore.in`. Firebase rejects non-service-account / CRUD lifecycle / 409 duplicate. Per-tenant config platform independence (android + ios stored separately, unbind one preserves the other). Provisioning fails gracefully with fake SA (200 with ok:false + error stored). Super push forbidden for tenant_admin.
+- `testing_agent_v3_fork` **iteration_8 → 100% (22/22 backend + full frontend UI)** — all reported bugs and features validated live.
+- Full backend regression: **182 / 182 green** after updating two legacy tests that assumed AWS was un-configurable.
+- AWS bucket `follomedia` verified live via `head_bucket` at ap-south-1.
+- New `/app/documentation/retrofit-architecture.md` — 7-phase reference (endpoints, models, env vars, credentials, files).
+- Fixed one pre-existing 500-error bug: customer auto-register now returns **409 `{code: "phone_role_conflict"}`** instead of leaking `DuplicateKeyError` when the phone is already registered under a different role.
+- Restored demo tenant name (`Akshara Agro`) and corrected `test_fieldcrm.py` to use the real customer phone (`9000000007`).
+- Applied testing agent's polish items:
+  - `POST /api/admin/push/test` now accepts empty body via `Body(default_factory=PushTestIn)`.
+  - Reviewer / super-admin self-delete 403s now return structured `{code: "reviewer_no_self_delete"}` / `{code: "super_admin_no_self_delete"}` for programmatic frontend handling.
+- `testing_agent_v3_fork` **iteration_6.json → 100% (18/18)** — all seven phases validated end-to-end against live REACT_APP_BACKEND_URL.
+- Full backend pytest: **164 / 164 green** (146 pre-existing + 18 regression suite).
+
