@@ -114,3 +114,25 @@ Multi-tenant SaaS Field Force Management platform (FieldCRM / localappstore.in) 
 - Distributor network / multi-level hierarchy
 - Loyalty / incentive schemes
 - Background route-replay with speed colored polylines
+
+---
+
+## Retrofit Architecture (7-Phase — Feb 2026)
+
+Layering "Bizil-Pattern" scaffolding onto the existing MVP. **Golden rule: additive only, do not change business logic. All new fields default null/empty.**
+
+### ✅ Phase 1 — Block G: Env Var Discipline (Feb 8, 2026)
+- Created `backend/.env.example` and `frontend/.env.example` with all present + planned (S3, FCM, subdomain) variables and inline comments.
+- Added `require_env([...])` fail-fast validator in `server.py`; startup raises `RuntimeError` if any REQUIRED variable is missing or blank. Verified via unit script.
+- `auth.py` now reads `JWT_SECRET / JWT_ALGO / JWT_TTL_HOURS / SUPER_ADMIN_PHONE / SUPER_ADMIN_OTP / DEMO_OTP` without dev fallbacks. Removed hard-coded `"dev-secret"` default.
+- `auth.py` calls `load_dotenv()` at module top to guarantee env is available even when imported before `server.py` fires its own `load_dotenv`.
+- Full env reference documented at `/app/documentation/environment-variables.md`.
+- Live smoke test: super-admin login (`9858558555 / 557725`) returns valid 259-char JWT.
+
+### ⏳ Phase 2 — Block A: Multi-tenant subdomain resolver (upcoming, SHIP LIVE)
+### ⏳ Phase 3 — Block C: S3 direct-upload presign + Block E: Privacy/T&C CRUD
+### ⏳ Phase 4 — Block D: Soft-delete guards + `token_rev` + reviewer bypass `9898989898/123456`
+### ⏳ Phase 5 — Block B: FCM shards + Capacitor build script
+### ⏳ Phase 6 — Block H: iOS safe-area CSS
+### ⏳ Phase 7 — Docs + full regression via testing_agent_v3_fork
+

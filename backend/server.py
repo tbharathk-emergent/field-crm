@@ -39,6 +39,37 @@ load_dotenv(ROOT_DIR / ".env")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("fieldcrm")
 
+
+def require_env(keys: List[str]) -> None:
+    """Fail fast if any required env var is missing or blank.
+
+    Blocking startup here guarantees the container crashes visibly instead of
+    booting with silent dev-defaults. See /app/documentation/environment-variables.md.
+    """
+    missing = [k for k in keys if not os.environ.get(k, "").strip()]
+    if missing:
+        msg = (
+            "FATAL: missing required environment variables: "
+            + ", ".join(missing)
+            + ". Copy backend/.env.example → backend/.env and fill in values."
+        )
+        logger.error(msg)
+        raise RuntimeError(msg)
+
+
+require_env([
+    "MONGO_URL",
+    "DB_NAME",
+    "JWT_SECRET",
+    "JWT_ALGO",
+    "JWT_TTL_HOURS",
+    "CORS_ORIGINS",
+    "APP_NAME",
+    "SUPER_ADMIN_PHONE",
+    "SUPER_ADMIN_OTP",
+    "DEMO_OTP",
+])
+
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ["DB_NAME"]]

@@ -1,17 +1,26 @@
 """JWT auth + OTP utilities."""
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load env early: this module is imported before server.py's load_dotenv() would fire,
+# so we call it here idempotently to guarantee env is populated on first access.
+load_dotenv(Path(__file__).parent / ".env")
+
 import jwt
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from fastapi import Header, HTTPException, Depends
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret")
-JWT_ALGO = os.environ.get("JWT_ALGO", "HS256")
-JWT_TTL_HOURS = int(os.environ.get("JWT_TTL_HOURS", "168"))
+# JWT_SECRET / JWT_ALGO / JWT_TTL_HOURS are validated as REQUIRED by server.require_env().
+# We read them here without dev fallbacks so any misconfiguration surfaces immediately.
+JWT_SECRET = os.environ["JWT_SECRET"]
+JWT_ALGO = os.environ["JWT_ALGO"]
+JWT_TTL_HOURS = int(os.environ["JWT_TTL_HOURS"])
 
-SUPER_ADMIN_PHONE = os.environ.get("SUPER_ADMIN_PHONE", "9858558555")
-SUPER_ADMIN_OTP = os.environ.get("SUPER_ADMIN_OTP", "557725")
-DEMO_OTP = os.environ.get("DEMO_OTP", "123456")
+SUPER_ADMIN_PHONE = os.environ["SUPER_ADMIN_PHONE"]
+SUPER_ADMIN_OTP = os.environ["SUPER_ADMIN_OTP"]
+DEMO_OTP = os.environ["DEMO_OTP"]
 
 
 def make_token(user_id: str, tenant_id: Optional[str], role: str, phone: str) -> str:
