@@ -31,7 +31,7 @@ export default function MobileShell({ variant = "employee" }) {
 
   return (
     <div className="min-h-screen bg-brand-bg flex flex-col">
-      <header className="sticky top-0 z-30 bg-white border-b border-brand-line">
+      <header className="sticky top-0 z-30 bg-white border-b border-brand-line safe-pt">
         <div className="px-4 py-3 flex items-center gap-3 justify-between">
           <div className="flex items-center gap-2 min-w-0">
             <TenantLogo tenant={tenant} size={36} />
@@ -62,7 +62,7 @@ export default function MobileShell({ variant = "employee" }) {
         </div>
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-brand-line z-40">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-brand-line z-40 safe-pb">
         <div className="max-w-xl mx-auto grid grid-cols-5">
           {tabs.map((tab) => {
             const Icon = tab.icon;

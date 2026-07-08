@@ -77,6 +77,8 @@ class Tenant(BaseModel):
     address: Optional[str] = None
     # Phase 2 — Subdomain / custom-domain routing. Additive: defaults null; existing rows untouched.
     custom_domain: Optional[str] = None  # e.g. "portal.acme.com" — lowercase, no protocol, no path
+    # Phase 5 — Firebase shard assignment. Additive: existing rows get shard 1 lazily.
+    fcm_shard_id: int = 1
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 
@@ -612,6 +614,27 @@ class RecentView(BaseModel):
     entity_type: str
     entity_id: str
     viewed_at: str = Field(default_factory=now_iso)
+
+
+# ---------- Phase 5 — Push tokens for FCM ----------
+PUSH_PLATFORMS = ("ios", "android", "web")
+
+
+class PushToken(BaseModel):
+    """FCM registration token per user-device.
+
+    A user may have multiple tokens (one per device). Deduped by (user_id, token).
+    The tenant's `fcm_shard_id` determines which Firebase project to dispatch through.
+    """
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    tenant_id: str
+    user_id: str
+    token: str
+    platform: str = "android"  # one of PUSH_PLATFORMS
+    device_label: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
+    last_seen_at: str = Field(default_factory=now_iso)
 
 
 # ---------- Phase 3 — Legal Documents (Privacy / T&C / Refund / Shipping / About) ----------

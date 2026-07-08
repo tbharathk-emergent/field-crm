@@ -176,7 +176,34 @@ Layering "Bizil-Pattern" scaffolding onto the existing MVP. **Golden rule: addit
 - `tests/test_phase34_uploads_legal_delete.py`: **11/11 green** — presign 503, presign 401, legal kind validation, full publish cycle, missing-kind fallback, non-admin 403, reviewer bypass login, reviewer cannot delete, soft-delete blocked by outstanding balance, soft-delete succeeds & revokes session, logout-all revocation.
 - Full regression: **131 passed**. 3 pre-existing `test_fieldcrm.py` failures unrelated (stale demo-tenant name).
 - Live smoke: `/t/demo/legal/privacy` renders the published Privacy Policy.
-### ⏳ Phase 5 — Block B: FCM shards + Capacitor build script
-### ⏳ Phase 6 — Block H: iOS safe-area CSS
+### ✅ Phase 5 — Block B: FCM sharded push + Capacitor build script (Feb 8, 2026)
+
+**Backend — FCM sharding (`/app/backend/fcm_service.py`)**
+- Constants: `SHARD_CAPACITY = 15` tenants per Firebase project.
+- Pure helpers: `pick_shard_for_new_tenant()`, `configured_shards()`, `is_shard_configured()`.
+- Lazy per-shard `firebase_admin.App` cache (thread-safe). Service-account JSON from `FCM_SHARD_<i>_CREDENTIALS_JSON`.
+- `send_to_tokens(shard_id, tokens, title, body, data)` — multicast via `messaging.send_each_for_multicast`; returns `{sent, failed, disabled?}` and NEVER raises. Missing config → benign no-op.
+- New `Tenant.fcm_shard_id` field (additive, default 1). Auto-assigned on `POST /api/super/tenants` via round-robin picker.
+
+**Backend — Endpoints**
+- `POST /api/push/register` — upserts a `PushToken` row. Dedupes by `(user_id, token)` (unique index).
+- `POST /api/push/unregister` — removes a token.
+- `POST /api/admin/push/test` — tenant admin dispatches a test push through the tenant's shard. Returns shard result + `tokens_targeted + shard_id`.
+- `GET /api/admin/push/status` — diagnostic (shard configured?, token count).
+- `GET /api/super/push/shards` — super-admin overview: per-shard tenant list, remaining capacity.
+
+**Capacitor build script (`/app/capacitor-build.sh`)**
+- One command: `./capacitor-build.sh <slug> [ios|android|both]`.
+- Fetches tenant JSON, derives `APP_ID = in.localappstore.fieldcrm.<slug>`, brands `capacitor.config.ts` with theme colour + push plugin.
+- Copies shard-appropriate `google-services.json` / `GoogleService-Info.plist` — Android + iOS push wired per shard.
+- Idempotent: `dist/tenants/<slug>` refreshes on re-run.
+
+### ✅ Phase 6 — Block H: iOS safe-area CSS + toast offset (Feb 8, 2026)
+- `viewport-fit=cover` + `apple-mobile-web-app-capable` meta in `index.html`.
+- CSS custom props `--sa-top/right/bottom/left` from `env(safe-area-inset-*)`.
+- Utility classes: `.safe-pt`, `.safe-pb`, `.safe-px`, `.safe-mb`, `.safe-inset-x`, `.fixed-bottom-safe`.
+- Sonner toaster shifted by safe-area on all four sides.
+- Mobile shells apply `safe-pt` on sticky header and `safe-pb` on fixed bottom nav.
+
 ### ⏳ Phase 7 — Docs + full regression via testing_agent_v3_fork
 

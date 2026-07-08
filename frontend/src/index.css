@@ -134,3 +134,53 @@ code {
 
 /* Leaflet container size */
 .leaflet-container { width: 100%; height: 100%; border-radius: 0.75rem; }
+
+/* ========================================================================
+ * Phase 6 — iOS safe-area handling
+ *
+ * Devices with notches / home indicators expose `env(safe-area-inset-*)`.
+ * We expose those as CSS custom properties so any component can use them,
+ * and reserve platform-safe padding on the shells (mobile nav, headers)
+ * and the Sonner toast container.
+ * ======================================================================== */
+:root {
+    --sa-top: env(safe-area-inset-top, 0px);
+    --sa-right: env(safe-area-inset-right, 0px);
+    --sa-bottom: env(safe-area-inset-bottom, 0px);
+    --sa-left: env(safe-area-inset-left, 0px);
+}
+
+/* Utility classes — sprinkle on shells and floating UI. */
+.safe-pt { padding-top: calc(var(--sa-top) + 0.25rem); }
+.safe-pb { padding-bottom: calc(var(--sa-bottom) + 0.25rem); }
+.safe-px { padding-left: var(--sa-left); padding-right: var(--sa-right); }
+.safe-mb { margin-bottom: var(--sa-bottom); }
+.safe-inset-x { left: var(--sa-left); right: var(--sa-right); }
+
+/* Fixed page bottoms — mobile bottom nav, sticky action bars — must sit
+   above the iOS home-indicator area. */
+.fixed-bottom-safe { bottom: var(--sa-bottom); }
+
+/* Sonner toaster offset. Sonner mounts a container at [data-sonner-toaster];
+   push it below the notch on the top and above the home-indicator on the
+   bottom so toasts never overlap system UI. */
+[data-sonner-toaster][data-y-position="top"] {
+    top: calc(var(--sa-top) + 0.75rem) !important;
+}
+[data-sonner-toaster][data-y-position="bottom"] {
+    bottom: calc(var(--sa-bottom) + 0.75rem) !important;
+}
+[data-sonner-toaster][data-x-position="right"] {
+    right: calc(var(--sa-right) + 0.75rem) !important;
+}
+[data-sonner-toaster][data-x-position="left"] {
+    left: calc(var(--sa-left) + 0.75rem) !important;
+}
+
+/* Body itself gets the horizontal insets so nothing runs into the notch on
+   landscape iPhones. */
+body {
+    padding-left: var(--sa-left);
+    padding-right: var(--sa-right);
+}
+

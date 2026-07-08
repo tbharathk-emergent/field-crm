@@ -25,6 +25,7 @@ from models import (
     Crop, AdvisoryEntry, SeasonalAdvisory, UserFavorite, RecentView,
     ADVISORY_TYPES,
     LegalDocument, LEGAL_KINDS,
+    PushToken, PUSH_PLATFORMS,
 )
 from auth import (
     make_token, decode_token, get_current_user, require_roles,
@@ -35,6 +36,7 @@ import storage_util as storage
 from seed import seed_all
 import tenant_resolver
 import s3_presign
+import fcm_service
 
 
 ROOT_DIR = Path(__file__).parent
@@ -118,6 +120,9 @@ async def ensure_indexes():
     # Phase 3 — Legal docs: one row per (tenant, kind, version). Multiple versions allowed; latest published is served.
     await db.legal_docs.create_index([("tenant_id", 1), ("kind", 1), ("version", -1)])
     await db.legal_docs.create_index([("tenant_id", 1), ("kind", 1), ("is_published", 1)])
+    # Phase 5 — Push tokens: dedupe by (user, token); look up by tenant for broadcasts.
+    await db.push_tokens.create_index([("user_id", 1), ("token", 1)], unique=True)
+    await db.push_tokens.create_index([("tenant_id", 1)])
 
 
 # Phase 4 — Session revocation: reject tokens issued before user.token_revoked_after.
@@ -453,6 +458,12 @@ async def create_tenant(payload: TenantIn, user: dict = Depends(require_roles("s
         ),
         default_language=payload.default_language,
     )
+    # Phase 5 — Auto-assign a Firebase shard (round-robin, capacity 15).
+    shard_counts_agg = await db.tenants.aggregate([
+        {"$group": {"_id": "$fcm_shard_id", "n": {"$sum": 1}}},
+    ]).to_list(100)
+    shard_counts = {int(x["_id"] or 1): int(x["n"]) for x in shard_counts_agg if x["_id"] is not None}
+    t.fcm_shard_id = fcm_service.pick_shard_for_new_tenant(shard_counts)
     await db.tenants.insert_one(t.model_dump())
     # Auto create admin user
     if payload.admin_phone:
@@ -2665,6 +2676,131 @@ async def logout_all(user: dict = Depends(get_current_user)):
 
 
 # ==================== END PHASE 4 ====================
+
+
+# ==================== PHASE 5: FCM SHARDED PUSH ====================
+class PushRegisterIn(BaseModel):
+    token: str
+    platform: str = "android"  # ios | android | web
+    device_label: Optional[str] = None
+
+
+@api.post("/push/register")
+async def push_register(payload: PushRegisterIn, user: dict = Depends(get_current_user)):
+    """Upsert an FCM registration token for the authenticated user's device.
+
+    Silent no-op safe: this only stores the token; the actual FCM shard config
+    can arrive later and everything just starts working.
+    """
+    if payload.platform not in PUSH_PLATFORMS:
+        raise HTTPException(400, f"Invalid platform. Must be one of: {', '.join(PUSH_PLATFORMS)}")
+    tid = user.get("tid")
+    if not tid:
+        raise HTTPException(400, "Push tokens are tenant-scoped; super_admin has no tenant")
+    now = now_iso()
+    doc = await db.push_tokens.find_one({"user_id": user["sub"], "token": payload.token})
+    if doc:
+        await db.push_tokens.update_one(
+            {"id": doc["id"]},
+            {"$set": {"last_seen_at": now, "platform": payload.platform, "device_label": payload.device_label}},
+        )
+        return {"ok": True, "id": doc["id"], "updated": True}
+    pt = PushToken(
+        tenant_id=tid, user_id=user["sub"], token=payload.token,
+        platform=payload.platform, device_label=payload.device_label,
+    )
+    await db.push_tokens.insert_one(pt.model_dump())
+    return {"ok": True, "id": pt.id, "updated": False}
+
+
+class PushUnregisterIn(BaseModel):
+    token: str
+
+
+@api.post("/push/unregister")
+async def push_unregister(payload: PushUnregisterIn, user: dict = Depends(get_current_user)):
+    r = await db.push_tokens.delete_one({"user_id": user["sub"], "token": payload.token})
+    return {"ok": True, "removed": r.deleted_count}
+
+
+async def _dispatch_to_tenant(tenant_id: str, title: str, body: str,
+                              data: Optional[Dict[str, str]] = None,
+                              user_ids: Optional[List[str]] = None) -> Dict[str, object]:
+    """Look up the tenant's shard and dispatch a push to matching tokens.
+
+    Returns fcm_service.send_to_tokens() result plus `tokens_targeted` count.
+    """
+    tenant = await db.tenants.find_one({"id": tenant_id}, {"fcm_shard_id": 1})
+    if not tenant:
+        return {"sent": 0, "failed": 0, "disabled": "tenant not found", "tokens_targeted": 0}
+    shard = int(tenant.get("fcm_shard_id") or 1)
+    q: Dict[str, object] = {"tenant_id": tenant_id}
+    if user_ids:
+        q["user_id"] = {"$in": user_ids}
+    tokens = [d["token"] for d in await db.push_tokens.find(q, {"token": 1}).to_list(5000)]
+    result = fcm_service.send_to_tokens(shard, tokens, title, body, data)
+    result["tokens_targeted"] = len(tokens)
+    result["shard_id"] = shard
+    return result
+
+
+class PushTestIn(BaseModel):
+    title: str = "Test notification"
+    body: str = "Hello from FieldCRM"
+    data: Optional[Dict[str, str]] = None
+    user_ids: Optional[List[str]] = None  # Optional filter; default: entire tenant
+
+
+@api.post("/admin/push/test")
+async def push_test(payload: PushTestIn, user: dict = Depends(require_roles("tenant_admin"))):
+    """Send a test push to (a subset of) the tenant's devices.
+
+    Returns fcm_service dispatch result — including `disabled` when the shard's
+    Firebase project credentials are not yet configured.
+    """
+    return await _dispatch_to_tenant(
+        tenant_id=user["tid"], title=payload.title, body=payload.body,
+        data=payload.data, user_ids=payload.user_ids,
+    )
+
+
+@api.get("/admin/push/status")
+async def push_status(user: dict = Depends(require_roles("tenant_admin"))):
+    """Diagnostic: shard configured?, token count for this tenant."""
+    tenant = await db.tenants.find_one({"id": user["tid"]}, {"fcm_shard_id": 1})
+    shard = int((tenant or {}).get("fcm_shard_id") or 1)
+    tokens = await db.push_tokens.count_documents({"tenant_id": user["tid"]})
+    return {
+        "shard_id": shard,
+        "shard_configured": fcm_service.is_shard_configured(shard),
+        "configured_shards": fcm_service.configured_shards(),
+        "shard_capacity": fcm_service.SHARD_CAPACITY,
+        "tokens_registered": tokens,
+    }
+
+
+@api.get("/super/push/shards")
+async def super_push_shards(user: dict = Depends(require_roles("super_admin"))):
+    """Overview of shard usage — used by super-admin to plan onboarding."""
+    agg = await db.tenants.aggregate([
+        {"$group": {"_id": "$fcm_shard_id", "count": {"$sum": 1}, "tenants": {"$push": "$slug"}}},
+        {"$sort": {"_id": 1}},
+    ]).to_list(200)
+    rows = [
+        {
+            "shard_id": int(row["_id"] or 1),
+            "tenant_count": row["count"],
+            "tenants": row["tenants"],
+            "configured": fcm_service.is_shard_configured(int(row["_id"] or 1)),
+            "capacity": fcm_service.SHARD_CAPACITY,
+            "remaining": max(0, fcm_service.SHARD_CAPACITY - row["count"]),
+        }
+        for row in agg
+    ]
+    return {"shards": rows, "configured_shards": fcm_service.configured_shards()}
+
+
+# ==================== END PHASE 5 ====================
 
 
 # Include routes & CORS

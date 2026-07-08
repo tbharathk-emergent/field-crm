@@ -92,7 +92,7 @@ export default function MobileAdminShell({ role }) {
   return (
     <div className="min-h-screen bg-brand-bg flex flex-col">
       {/* Top bar */}
-      <header className="sticky top-0 z-30 bg-white border-b border-brand-line">
+      <header className="sticky top-0 z-30 bg-white border-b border-brand-line safe-pt">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3 justify-between">
           <div className="flex items-center gap-2 min-w-0">
             {role === "super_admin" ? (
@@ -129,7 +129,7 @@ export default function MobileAdminShell({ role }) {
       </main>
 
       {/* Bottom nav */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-brand-line z-40 shadow-[0_-2px_10px_rgba(0,0,0,0.04)]">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-brand-line z-40 shadow-[0_-2px_10px_rgba(0,0,0,0.04)] safe-pb">
         <div className="max-w-2xl mx-auto grid grid-cols-5">
           {bottom.map((item) => {
             const Icon = item.icon;
