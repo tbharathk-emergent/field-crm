@@ -34,8 +34,34 @@ _REQUIRED = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION", "AWS_S3
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
 
+# Phase 8 — In-process override of AWS credentials, populated when the super
+# admin uploads keys via the UI. Overrides env when set (empty dict = fall back to env).
+_RUNTIME_OVERRIDE: Dict[str, str] = {}
+
+
+def apply_runtime_credentials(creds: Dict[str, str]) -> None:
+    """Populate/replace the in-process AWS credential override.
+
+    Accepted keys: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION,
+    AWS_S3_BUCKET, AWS_S3_PRESIGN_TTL_SECONDS, AWS_PUBLIC_MEDIA_HOST.
+    Empty string values clear that key.
+    """
+    for k, v in (creds or {}).items():
+        v = (v or "").strip()
+        if v:
+            _RUNTIME_OVERRIDE[k] = v
+            # Also mirror into env so any other module that reads env stays in sync.
+            os.environ[k] = v
+        else:
+            _RUNTIME_OVERRIDE.pop(k, None)
+
+
+def _get(key: str) -> str:
+    return _RUNTIME_OVERRIDE.get(key) or os.environ.get(key, "")
+
+
 def _missing() -> list[str]:
-    return [k for k in _REQUIRED if not os.environ.get(k, "").strip()]
+    return [k for k in _REQUIRED if not _get(k).strip()]
 
 
 def is_configured() -> bool:
@@ -48,9 +74,9 @@ def _client():
         raise S3NotConfigured(f"S3 not configured — set {', '.join(missing)} in backend/.env")
     return boto3.client(
         "s3",
-        aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
-        region_name=os.environ["AWS_REGION"],
+        aws_access_key_id=_get("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=_get("AWS_SECRET_ACCESS_KEY"),
+        region_name=_get("AWS_REGION"),
         config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
     )
 
@@ -68,9 +94,15 @@ def _safe_filename(name: str) -> str:
 
 def _ttl() -> int:
     try:
-        return int(os.environ.get("AWS_S3_PRESIGN_TTL_SECONDS", "900"))
+        return int(_get("AWS_S3_PRESIGN_TTL_SECONDS") or "900")
     except ValueError:
         return 900
+
+
+def public_media_host() -> Optional[str]:
+    """Return AWS_PUBLIC_MEDIA_HOST if configured (e.g. 'media.acme.com')."""
+    v = _get("AWS_PUBLIC_MEDIA_HOST").strip()
+    return v or None
 
 
 def build_key(tenant_id: Optional[str], user_id: Optional[str], module: Optional[str], filename: str) -> str:
@@ -84,7 +116,7 @@ def build_key(tenant_id: Optional[str], user_id: Optional[str], module: Optional
 def presign_put(key: str, content_type: Optional[str]) -> Dict[str, object]:
     """Return a presigned PUT URL ready to be used directly from the browser/app."""
     client = _client()
-    bucket = os.environ["AWS_S3_BUCKET"]
+    bucket = _get("AWS_S3_BUCKET")
     ttl = _ttl()
     params: Dict[str, object] = {"Bucket": bucket, "Key": key}
     if content_type:
@@ -93,15 +125,22 @@ def presign_put(key: str, content_type: Optional[str]) -> Dict[str, object]:
         url = client.generate_presigned_url("put_object", Params=params, ExpiresIn=ttl, HttpMethod="PUT")
     except (BotoCoreError, ClientError) as e:
         raise S3NotConfigured(f"S3 presign failed: {e}") from e
+    region = _get("AWS_REGION")
+    host = public_media_host()
+    object_url = (
+        f"https://{host}/{key}" if host
+        else f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
+    )
     return {
         "method": "PUT",
         "url": url,
         "key": key,
         "bucket": bucket,
-        "region": os.environ["AWS_REGION"],
+        "region": region,
         "expires_in": ttl,
         "headers": {"Content-Type": content_type} if content_type else {},
         # Convenience: the final object URL, useful for storing in DB. May be
         # inaccessible publicly if the bucket blocks public reads (intended).
-        "object_url": f"https://{bucket}.s3.{os.environ['AWS_REGION']}.amazonaws.com/{key}",
+        "object_url": object_url,
+        "public_host": host,
     }

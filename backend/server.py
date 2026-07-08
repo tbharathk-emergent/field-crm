@@ -26,6 +26,8 @@ from models import (
     ADVISORY_TYPES,
     LegalDocument, LEGAL_KINDS,
     PushToken, PUSH_PLATFORMS,
+    FirebaseProject, TenantFirebaseConfig, TenantFirebaseApp,
+    FIREBASE_APP_PLATFORMS, FIREBASE_APP_MODES, FIREBASE_PROJECT_MAX_APPS,
 )
 from auth import (
     make_token, decode_token, get_current_user, require_roles,
@@ -37,6 +39,7 @@ from seed import seed_all
 import tenant_resolver
 import s3_presign
 import fcm_service
+import firebase_provisioning
 
 
 ROOT_DIR = Path(__file__).parent
@@ -123,6 +126,28 @@ async def ensure_indexes():
     # Phase 5 — Push tokens: dedupe by (user, token); look up by tenant for broadcasts.
     await db.push_tokens.create_index([("user_id", 1), ("token", 1)], unique=True)
     await db.push_tokens.create_index([("tenant_id", 1)])
+    # Phase 8 — Per-tenant Firebase config + Firebase projects
+    await db.firebase_projects.create_index("project_id", unique=True)
+    await db.tenant_firebase_config.create_index("tenant_id", unique=True)
+
+
+async def _hydrate_cloud_credentials():
+    """Phase 8 — Load AWS credentials saved via Super Admin UI into the S3 module.
+    Safe on empty DB — silently no-ops when no doc exists yet.
+    """
+    doc = await db.platform_settings.find_one({"key": "aws_credentials"})
+    if not doc:
+        return
+    creds = doc.get("value") or {}
+    if isinstance(creds, dict) and creds:
+        s3_presign.apply_runtime_credentials({
+            "AWS_ACCESS_KEY_ID": creds.get("aws_access_key_id", ""),
+            "AWS_SECRET_ACCESS_KEY": creds.get("aws_secret_access_key", ""),
+            "AWS_REGION": creds.get("aws_region", ""),
+            "AWS_S3_BUCKET": creds.get("aws_bucket_name", ""),
+            "AWS_PUBLIC_MEDIA_HOST": creds.get("aws_public_media_host", ""),
+        })
+        logger.info("AWS credentials loaded from DB (bucket=%s)", creds.get("aws_bucket_name"))
 
 
 # Phase 4 — Session revocation: reject tokens issued before user.token_revoked_after.
@@ -161,6 +186,7 @@ async def _session_validator(payload: dict) -> None:
 async def startup():
     await ensure_indexes()
     set_session_validator(_session_validator)  # Phase 4 — attach revocation check to all Bearer requests.
+    await _hydrate_cloud_credentials()  # Phase 8 — load AWS keys from DB if present.
     try:
         await seed_all(db)
     except Exception as e:
@@ -2738,9 +2764,11 @@ async def push_unregister(payload: PushUnregisterIn, user: dict = Depends(get_cu
 async def _dispatch_to_tenant(tenant_id: str, title: str, body: str,
                               data: Optional[Dict[str, str]] = None,
                               user_ids: Optional[List[str]] = None) -> Dict[str, object]:
-    """Look up the tenant's shard and dispatch a push to matching tokens.
+    """Look up the tenant's Firebase config (Phase 8) or shard (Phase 5) and dispatch.
 
-    Returns fcm_service.send_to_tokens() result plus `tokens_targeted` count.
+    Preference order:
+      1. `tenant_firebase_config` DB doc with android or ios app — use its Firebase project.
+      2. Env-based `FCM_SHARD_<tenant.fcm_shard_id>_*` fallback.
     """
     tenant = await db.tenants.find_one({"id": tenant_id}, {"fcm_shard_id": 1})
     if not tenant:
@@ -2750,9 +2778,30 @@ async def _dispatch_to_tenant(tenant_id: str, title: str, body: str,
     if user_ids:
         q["user_id"] = {"$in": user_ids}
     tokens = [d["token"] for d in await db.push_tokens.find(q, {"token": 1}).to_list(5000)]
+
+    # --- Phase 8: prefer per-tenant Firebase config from DB ---
+    tfc = await db.tenant_firebase_config.find_one({"tenant_id": tenant_id})
+    if tfc:
+        app_meta = tfc.get("android") or tfc.get("ios")
+        proj_id_ref = (app_meta or {}).get("firebase_project_id")
+        if proj_id_ref:
+            fp = await db.firebase_projects.find_one({"id": proj_id_ref})
+            if fp and fp.get("service_account_json") and fp.get("project_id"):
+                result = fcm_service.send_to_tokens(
+                    shard, tokens, title, body, data,
+                    service_account_json=fp["service_account_json"],
+                    project_id=fp["project_id"],
+                )
+                result["tokens_targeted"] = len(tokens)
+                result["source"] = "tenant_firebase_config"
+                result["firebase_project_id"] = fp["project_id"]
+                return result
+
+    # --- Phase 5 fallback: env-based shard ---
     result = fcm_service.send_to_tokens(shard, tokens, title, body, data)
     result["tokens_targeted"] = len(tokens)
     result["shard_id"] = shard
+    result["source"] = "env_shard"
     return result
 
 
@@ -2816,6 +2865,342 @@ async def super_push_shards(user: dict = Depends(require_roles("super_admin"))):
 
 
 # ==================== END PHASE 5 ====================
+
+
+# ==================== PHASE 8: CLOUD CREDENTIALS + PER-TENANT FIREBASE ====================
+class AwsCredentialsIn(BaseModel):
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    aws_region: str
+    aws_bucket_name: str
+    aws_public_media_host: Optional[str] = ""
+
+
+def _mask(secret: str) -> str:
+    if not secret:
+        return ""
+    if len(secret) <= 8:
+        return "***"
+    return f"{secret[:4]}…{secret[-4:]}"
+
+
+@api.get("/super/aws-credentials")
+async def get_aws_credentials(user: dict = Depends(require_roles("super_admin"))):
+    """Return currently-saved AWS creds with the secret masked. Never leaks the raw secret."""
+    doc = await db.platform_settings.find_one({"key": "aws_credentials"})
+    v = (doc or {}).get("value") or {}
+    return {
+        "configured": s3_presign.is_configured(),
+        "aws_access_key_id": v.get("aws_access_key_id", ""),
+        "aws_secret_access_key_masked": _mask(v.get("aws_secret_access_key", "")),
+        "aws_region": v.get("aws_region", ""),
+        "aws_bucket_name": v.get("aws_bucket_name", ""),
+        "aws_public_media_host": v.get("aws_public_media_host", ""),
+    }
+
+
+@api.put("/super/aws-credentials")
+async def put_aws_credentials(payload: AwsCredentialsIn,
+                              user: dict = Depends(require_roles("super_admin"))):
+    """Store AWS credentials in DB and immediately apply them at runtime.
+
+    After a successful save, `/api/uploads/presign` starts working without a
+    server restart. Bucket + region are validated by calling `head_bucket`.
+    """
+    value = payload.model_dump()
+    # Persist first so we can reload on restart even if head_bucket fails now.
+    await db.platform_settings.update_one(
+        {"key": "aws_credentials"},
+        {"$set": {"value": value, "updated_at": now_iso(), "updated_by": user["sub"]}},
+        upsert=True,
+    )
+    # Apply at runtime
+    s3_presign.apply_runtime_credentials({
+        "AWS_ACCESS_KEY_ID": payload.aws_access_key_id,
+        "AWS_SECRET_ACCESS_KEY": payload.aws_secret_access_key,
+        "AWS_REGION": payload.aws_region,
+        "AWS_S3_BUCKET": payload.aws_bucket_name,
+        "AWS_PUBLIC_MEDIA_HOST": payload.aws_public_media_host or "",
+    })
+    # Best-effort connectivity test (do not fail the save on network hiccups).
+    verify: Dict[str, object] = {"attempted": False}
+    try:
+        client = s3_presign._client()  # noqa - internal ok for validation
+        client.head_bucket(Bucket=payload.aws_bucket_name)
+        verify = {"attempted": True, "ok": True}
+    except Exception as e:
+        verify = {"attempted": True, "ok": False, "error": str(e)[:250]}
+    return {"ok": True, "configured": s3_presign.is_configured(), "verify": verify}
+
+
+# ---- Firebase projects (Super Admin CRUD) ----
+class FirebaseProjectIn(BaseModel):
+    name: str
+    project_id: str
+    service_account_json: Dict[str, Any]
+
+
+@api.get("/super/firebase-projects")
+async def list_firebase_projects(user: dict = Depends(require_roles("super_admin"))):
+    """List Firebase projects with usage counters and remote app counts (best effort)."""
+    rows = await db.firebase_projects.find().sort("created_at", -1).to_list(200)
+    out = []
+    for r in rows:
+        r = clean(r)
+        r.pop("service_account_json", None)  # do not leak the raw JSON
+        # count tenant bindings for this project
+        used = await db.tenant_firebase_config.count_documents({
+            "$or": [
+                {"android.firebase_project_id": r["id"]},
+                {"ios.firebase_project_id": r["id"]},
+            ]
+        })
+        r["tenants_bound"] = used
+        r["remaining_apps"] = max(0, r.get("max_apps", FIREBASE_PROJECT_MAX_APPS) - r.get("apps_provisioned", 0))
+        out.append(r)
+    return out
+
+
+@api.post("/super/firebase-projects")
+async def create_firebase_project(payload: FirebaseProjectIn,
+                                  user: dict = Depends(require_roles("super_admin"))):
+    if not payload.service_account_json or not isinstance(payload.service_account_json, dict):
+        raise HTTPException(400, "service_account_json must be a JSON object")
+    if payload.service_account_json.get("type") != "service_account":
+        raise HTTPException(400, "Provided JSON is not a Google service-account key")
+    # Enforce uniqueness on project_id
+    clash = await db.firebase_projects.find_one({"project_id": payload.project_id})
+    if clash:
+        raise HTTPException(409, "A Firebase project with this project_id already exists")
+    fp = FirebaseProject(
+        name=payload.name, project_id=payload.project_id,
+        service_account_json=payload.service_account_json,
+    )
+    # Best-effort app count refresh so the UI shows real capacity immediately.
+    listing = firebase_provisioning.list_apps(payload.project_id, payload.service_account_json)
+    if listing.get("ok"):
+        fp.apps_provisioned = int(listing["total"])
+    await db.firebase_projects.insert_one(fp.model_dump())
+    out = clean(fp.model_dump())
+    out.pop("service_account_json", None)
+    out["listing"] = listing
+    return out
+
+
+@api.delete("/super/firebase-projects/{fp_id}")
+async def delete_firebase_project(fp_id: str, user: dict = Depends(require_roles("super_admin"))):
+    bound = await db.tenant_firebase_config.count_documents({
+        "$or": [
+            {"android.firebase_project_id": fp_id},
+            {"ios.firebase_project_id": fp_id},
+        ]
+    })
+    if bound:
+        raise HTTPException(409, f"{bound} tenant(s) still bound to this project; unbind first")
+    r = await db.firebase_projects.delete_one({"id": fp_id})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Firebase project not found")
+    return {"ok": True}
+
+
+@api.post("/super/firebase-projects/{fp_id}/refresh")
+async def refresh_firebase_project(fp_id: str, user: dict = Depends(require_roles("super_admin"))):
+    """Re-count remote apps via the Firebase Management API and update `apps_provisioned`."""
+    fp = await db.firebase_projects.find_one({"id": fp_id})
+    if not fp:
+        raise HTTPException(404, "Firebase project not found")
+    listing = firebase_provisioning.list_apps(fp["project_id"], fp["service_account_json"])
+    if not listing.get("ok"):
+        raise HTTPException(502, detail={"code": "firebase_api_error", "message": listing.get("error")})
+    await db.firebase_projects.update_one(
+        {"id": fp_id},
+        {"$set": {"apps_provisioned": int(listing["total"]), "updated_at": now_iso()}},
+    )
+    return {"ok": True, **listing}
+
+
+# ---- Per-tenant Firebase config ----
+class TenantAppExistingIn(BaseModel):
+    """Bring-your-own Firebase app — admin pastes app_id + config file text."""
+    platform: str  # "android" | "ios"
+    firebase_project_id: Optional[str] = None  # our FirebaseProject.id if the project is registered
+    app_id: str
+    package_name: Optional[str] = None
+    config_json: Optional[str] = None  # raw google-services.json / GoogleService-Info.plist text
+
+
+class TenantAppProvisionIn(BaseModel):
+    """Auto-provision a new app under the given FirebaseProject.id."""
+    platform: str  # "android" | "ios"
+    firebase_project_id: str  # our FirebaseProject.id
+    package_or_bundle: Optional[str] = None  # override; else derived from tenant slug
+
+
+async def _load_tfc(tenant_id: str) -> Dict[str, Any]:
+    doc = await db.tenant_firebase_config.find_one({"tenant_id": tenant_id})
+    if not doc:
+        return {"tenant_id": tenant_id, "android": None, "ios": None}
+    d = clean(doc)
+    # Guarantee both platform keys are present (may be None) so callers can rely on the shape.
+    d.setdefault("android", None)
+    d.setdefault("ios", None)
+    return d
+
+
+@api.get("/super/tenants/{tenant_id}/firebase-config")
+async def get_tenant_firebase_config(tenant_id: str,
+                                     user: dict = Depends(require_roles("super_admin"))):
+    tenant = await db.tenants.find_one({"id": tenant_id}, {"slug": 1, "name": 1})
+    if not tenant:
+        raise HTTPException(404, "Tenant not found")
+    cfg = await _load_tfc(tenant_id)
+    return {"tenant": {"id": tenant_id, "slug": tenant.get("slug"), "name": tenant.get("name")}, **cfg}
+
+
+@api.put("/super/tenants/{tenant_id}/firebase-config")
+async def upsert_tenant_firebase_config_existing(
+    tenant_id: str, payload: TenantAppExistingIn,
+    user: dict = Depends(require_roles("super_admin")),
+):
+    """Save existing Firebase app details for one platform of a tenant.
+
+    Backward compat: the tenant may already have the other platform provisioned;
+    this endpoint only touches the platform in the payload.
+    """
+    if payload.platform not in FIREBASE_APP_PLATFORMS:
+        raise HTTPException(400, "platform must be 'android' or 'ios'")
+    if not (await db.tenants.find_one({"id": tenant_id})):
+        raise HTTPException(404, "Tenant not found")
+    app_entry = TenantFirebaseApp(
+        platform=payload.platform, mode="existing",
+        firebase_project_id=payload.firebase_project_id,
+        app_id=payload.app_id, package_name=payload.package_name,
+        config_json=payload.config_json,
+    )
+    await db.tenant_firebase_config.update_one(
+        {"tenant_id": tenant_id},
+        {"$set": {payload.platform: app_entry.model_dump(), "updated_at": now_iso()},
+         "$setOnInsert": {"id": gen_id(), "tenant_id": tenant_id}},
+        upsert=True,
+    )
+    return await _load_tfc(tenant_id)
+
+
+@api.post("/super/tenants/{tenant_id}/firebase-config/provision")
+async def provision_tenant_firebase_app(
+    tenant_id: str, payload: TenantAppProvisionIn,
+    user: dict = Depends(require_roles("super_admin")),
+):
+    """Real-time provision one Firebase app for a tenant.
+
+    * If the Firebase project is out of capacity → 409.
+    * If Google's API is unreachable / errors → the request stores mode='auto'
+      with `provisioning_error` set so the UI can show the reason and offer
+      the user a "retry" or a "paste existing config" fallback (option "c").
+    """
+    if payload.platform not in FIREBASE_APP_PLATFORMS:
+        raise HTTPException(400, "platform must be 'android' or 'ios'")
+    tenant = await db.tenants.find_one({"id": tenant_id})
+    if not tenant:
+        raise HTTPException(404, "Tenant not found")
+    fp = await db.firebase_projects.find_one({"id": payload.firebase_project_id})
+    if not fp:
+        raise HTTPException(404, "Firebase project not found — upload its service account first")
+    if fp.get("apps_provisioned", 0) >= fp.get("max_apps", FIREBASE_PROJECT_MAX_APPS):
+        raise HTTPException(409, detail={
+            "code": "firebase_capacity_exhausted",
+            "message": f"Project '{fp['name']}' is at {fp.get('apps_provisioned')}/{fp.get('max_apps')} apps. Upload another Firebase project.",
+        })
+
+    # Derive package name / bundle id from tenant slug if the caller didn't pass one.
+    slug = (tenant.get("slug") or "tenant").lower()
+    clean_slug = "".join(c for c in slug if c.isalnum())
+    default_bundle = f"in.localappstore.fieldcrm.{clean_slug or 'app'}"
+    package_or_bundle = payload.package_or_bundle or default_bundle
+    display_name = f"{tenant.get('name') or slug} ({payload.platform})"
+
+    result = firebase_provisioning.create_app(
+        project_id=fp["project_id"],
+        service_account_json=fp["service_account_json"],
+        platform=payload.platform,
+        package_or_bundle=package_or_bundle,
+        display_name=display_name,
+    )
+
+    app_entry = TenantFirebaseApp(
+        platform=payload.platform,
+        mode="auto",
+        firebase_project_id=fp["id"],
+        package_name=package_or_bundle,
+        app_id=result.get("app_id") if result.get("ok") else None,
+        config_json=result.get("config_json") if result.get("ok") else None,
+        provisioned_at=now_iso() if result.get("ok") else None,
+        provisioning_error=None if result.get("ok") else result.get("error"),
+    )
+    await db.tenant_firebase_config.update_one(
+        {"tenant_id": tenant_id},
+        {"$set": {payload.platform: app_entry.model_dump(), "updated_at": now_iso()},
+         "$setOnInsert": {"id": gen_id(), "tenant_id": tenant_id}},
+        upsert=True,
+    )
+    if result.get("ok"):
+        await db.firebase_projects.update_one(
+            {"id": fp["id"]},
+            {"$inc": {"apps_provisioned": 1}, "$set": {"updated_at": now_iso()}},
+        )
+    tfc = await _load_tfc(tenant_id)
+    return {"ok": bool(result.get("ok")), "result": result, "config": tfc}
+
+
+@api.delete("/super/tenants/{tenant_id}/firebase-config/{platform}")
+async def unbind_tenant_firebase_app(
+    tenant_id: str, platform: str,
+    user: dict = Depends(require_roles("super_admin")),
+):
+    if platform not in FIREBASE_APP_PLATFORMS:
+        raise HTTPException(400, "platform must be 'android' or 'ios'")
+    await db.tenant_firebase_config.update_one(
+        {"tenant_id": tenant_id},
+        {"$unset": {platform: ""}, "$set": {"updated_at": now_iso()}},
+    )
+    return await _load_tfc(tenant_id)
+
+
+# ---- Super Admin: per-tenant test push ----
+class SuperPushTestIn(BaseModel):
+    title: str = "Test notification"
+    body: str = "Hello from FieldCRM"
+    data: Optional[Dict[str, str]] = None
+    user_ids: Optional[List[str]] = None
+    # If no real device tokens are stored, we can still exercise the Firebase
+    # send path by passing a synthetic token; useful for smoke tests.
+    dry_run_token: Optional[str] = None
+
+
+@api.post("/super/tenants/{tenant_id}/push/test")
+async def super_push_test(tenant_id: str,
+                          payload: SuperPushTestIn = Body(default_factory=SuperPushTestIn),
+                          user: dict = Depends(require_roles("super_admin"))):
+    tenant = await db.tenants.find_one({"id": tenant_id}, {"id": 1, "slug": 1})
+    if not tenant:
+        raise HTTPException(404, "Tenant not found")
+    if payload.dry_run_token:
+        # Inject one synthetic token so the send path exercises real credentials.
+        await db.push_tokens.update_one(
+            {"user_id": f"__super_dry__{tenant_id}", "token": payload.dry_run_token},
+            {"$set": {"tenant_id": tenant_id, "platform": "android",
+                      "device_label": "super-admin dry-run",
+                      "last_seen_at": now_iso()},
+             "$setOnInsert": {"id": gen_id(), "created_at": now_iso()}},
+            upsert=True,
+        )
+    return await _dispatch_to_tenant(
+        tenant_id=tenant_id, title=payload.title, body=payload.body,
+        data=payload.data, user_ids=payload.user_ids,
+    )
+
+
+# ==================== END PHASE 8 ====================
 
 
 # Include routes & CORS

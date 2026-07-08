@@ -637,6 +637,60 @@ class PushToken(BaseModel):
     last_seen_at: str = Field(default_factory=now_iso)
 
 
+# ---------- Phase 8 — Per-tenant Firebase config + Cloud Credentials ----------
+# One Android + one iOS app per tenant. Each Firebase project holds ≤30 apps
+# → ~15 tenants per Firebase project.
+
+FIREBASE_APP_PLATFORMS = ("android", "ios")
+FIREBASE_APP_MODES = ("existing", "auto")  # existing = uploaded by admin; auto = provisioned by us
+FIREBASE_PROJECT_MAX_APPS = 30
+
+
+class FirebaseProject(BaseModel):
+    """A Firebase project the platform can provision apps into.
+
+    `service_account_json` is stored as-is (base64 is not needed since Mongo
+    handles JSON). Restrict this collection to super-admin reads/writes.
+    """
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    name: str  # human label, e.g. "Shard-1 (Follo)"
+    project_id: str  # Google Cloud / Firebase project ID
+    service_account_json: Dict[str, Any] = {}
+    apps_provisioned: int = 0  # counter; we bump on each auto-create + refresh from API on demand
+    max_apps: int = FIREBASE_PROJECT_MAX_APPS
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+
+class TenantFirebaseApp(BaseModel):
+    """One Firebase app (Android or iOS) for a tenant."""
+    model_config = ConfigDict(extra="ignore")
+    platform: str  # "android" | "ios"
+    mode: str = "existing"  # "existing" | "auto"
+    firebase_project_id: Optional[str] = None  # FirebaseProject.id, when auto or when known
+    app_id: Optional[str] = None  # e.g. "1:1234:android:abc"
+    package_name: Optional[str] = None  # Android package or iOS bundleId
+    config_json: Optional[str] = None  # google-services.json (Android) or GoogleService-Info.plist XML (iOS)
+    provisioned_at: Optional[str] = None
+    provisioning_error: Optional[str] = None  # last failure message if auto-provision hit trouble
+    updated_at: str = Field(default_factory=now_iso)
+
+
+class TenantFirebaseConfig(BaseModel):
+    """Per-tenant Firebase configuration — up to two apps (android + ios).
+
+    Backward-compat: if a tenant has no doc here, the legacy env-based
+    `Tenant.fcm_shard_id` is used. This document is authoritative when present.
+    """
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    tenant_id: str
+    android: Optional[TenantFirebaseApp] = None
+    ios: Optional[TenantFirebaseApp] = None
+    updated_at: str = Field(default_factory=now_iso)
+
+
 # ---------- Phase 3 — Legal Documents (Privacy / T&C / Refund / Shipping / About) ----------
 LEGAL_KINDS = ("privacy", "terms", "refund", "shipping", "about", "contact")
 

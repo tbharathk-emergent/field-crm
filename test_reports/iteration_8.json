@@ -1,0 +1,37 @@
+{
+  "summary": "Phase 8 (AWS creds UI + per-tenant Firebase config + Super-Admin per-tenant test push) validated end-to-end. Backend 22/22 pass (11 phase8 + 11 iter8 regression). Real AWS bucket 'follomedia' verified via head_bucket. Frontend UI fully wired: 3 tabs render, all data-testids present, Firebase JSON validation (invalid/not-service-account) works, Firebase project add succeeds, per-tenant android+iOS cards independent, push test returns proper JSON with source=env_shard fallback, NO [object Object] toasts, NO console errors. Sidebar Cloud link present.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Super-Admin → Cloud → Tenants tab", "issues": ["Tenant sidebar polluted with many 'TEST Tenant testXXXXX' rows likely from earlier iteration runs — not a code bug but seed/cleanup drift. Consider TTL cleanup or filter out slugs matching test\\d+ in super_admin listing."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase8_cloud_firebase.py",
+    "/app/backend/tests/test_iter8_regression.py",
+    "/app/test_reports/pytest/iter8_phase8.xml",
+    "/app/test_reports/pytest/iter8_regression.xml"
+  ],
+  "action_items": [
+    "Optional: cleanup/filter TEST_ tenant rows in Super-Admin Cloud → Tenants sidebar (pollution from prior test iterations).",
+    "None functional — all reported bugs and features verified working."
+  ],
+  "critical_code_review_comments": [
+    "Cloud.jsx (685 lines) is close to the 700-line soft limit — consider splitting into AwsSection.jsx / FirebaseSection.jsx / TenantsSection.jsx modules in a follow-up refactor.",
+    "AddFirebaseModal parses JSON twice (onFile and save) — could be normalized to a single validated state.",
+    "Toast error handling correctly stringifies detail objects with `typeof d === 'object' ? d.message : d` pattern in refresh/provision paths; other paths (e.g. AwsSection save error, delete errors) still risk rendering an object if backend ever returns dict detail — recommend a central `formatDetail(err)` helper used everywhere.",
+    "Push test button has no disabled state while `busy` from previous send is technically handled but result panel re-renders JSON which is fine for admin use."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter8_regression.py (new — 11 regression + aws real-bucket + backward-compat push tests)"
+  ],
+  "success_rate": { "backend": "100% (22/22)", "frontend": "100% (all Phase 8 flows verified)" },
+  "test_credentials": "Super Admin 9858558555/557725; Tenant Admin (demo) 9000000001/123456. AWS keys as provided by user — real bucket 'follomedia' head_bucket verified OK.",
+  "seed_data_creation": "Two ephemeral Firebase project rows created and left in DB from add-project UI test (project_ids: test-ui-1783507527, potentially others). They have tenants_bound=0 so are safe to delete via UI refresh/delete icons.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 8 fully validated. AWS creds are persisted in DB with real user-provided key AKIAWJ47YHNLR6DKD2XR; presign flow now uses runtime overrides (no restart needed). Env FCM shard fallback path returns source=env_shard, tenant_firebase_config path returns source=tenant_firebase_config — both proven. UI has NO [object Object] leaks. If retesting, use dry_run_token to inject synthetic token so tokens_targeted>=1.",
+  "rca of the issue": "N/A — no bugs found in this iteration."
+}

@@ -97,12 +97,16 @@ def test_phase3_presign_unauth():
     assert r.status_code == 401
 
 
-def test_phase3_presign_not_configured():
+def test_phase3_presign_reflects_current_config():
+    """Phase 8 update: AWS creds can be saved via Super Admin UI. If the platform
+    has creds saved, presign returns 200 with a signed URL; if not, 503."""
     tok = _login("9000000001", tenant_slug="demo").json()["token"]
     r = requests.post(f"{API}/uploads/presign", json={"filename": "a.jpg", "content_type": "image/jpeg"}, headers=_hdr(tok), timeout=10)
-    assert r.status_code == 503, r.text
-    body = r.text.lower()
-    assert "not configured" in body
+    assert r.status_code in (200, 503), r.text
+    if r.status_code == 200:
+        assert r.json().get("url", "").startswith("https://")
+    else:
+        assert "not configured" in r.text.lower()
 
 
 # --------------- PHASE 3 legal ---------------

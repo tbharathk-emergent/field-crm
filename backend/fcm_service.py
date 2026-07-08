@@ -111,17 +111,54 @@ def send_to_tokens(
     title: str,
     body: str,
     data: Optional[Dict[str, str]] = None,
+    service_account_json: Optional[Dict[str, object]] = None,
+    project_id: Optional[str] = None,
 ) -> Dict[str, object]:
     """Multicast a notification via FCM. Never raises.
 
-    Returns `{sent, failed, disabled?, failure_reasons}`. When the shard or
-    firebase-admin isn't available, returns `{sent: 0, disabled: <reason>}` so
-    callers can degrade gracefully.
+    Preferred path (Phase 8): pass an inline `service_account_json` + `project_id`
+    for per-tenant Firebase — bypasses the env-based shard entirely.
+
+    Fallback (Phase 5): if inline credentials are absent, look up the env shard
+    by `shard_id`.
+
+    Returns `{sent, failed, disabled?, failure_reasons}`.
     """
     tokens = [t for t in (tokens or []) if t]
     if not tokens:
         return {"sent": 0, "failed": 0}
 
+    # --- Phase 8: inline per-tenant credentials ---
+    if service_account_json and project_id:
+        try:
+            import json as _json
+            import firebase_admin  # noqa
+            from firebase_admin import credentials as fb_credentials, messaging
+
+            with _LOCK:
+                app_name = f"tenant-{project_id}"
+                try:
+                    app = firebase_admin.get_app(app_name)
+                except ValueError:
+                    cred = fb_credentials.Certificate(service_account_json)
+                    app = firebase_admin.initialize_app(cred, {"projectId": project_id}, name=app_name)
+
+            message = messaging.MulticastMessage(
+                tokens=tokens,
+                notification=messaging.Notification(title=title, body=body),
+                data={k: str(v) for k, v in (data or {}).items()},
+            )
+            resp = messaging.send_each_for_multicast(message, app=app)
+            failures = []
+            for i, r in enumerate(resp.responses):
+                if not r.success:
+                    failures.append({"token": tokens[i][:12] + "…", "error": str(r.exception) if r.exception else "unknown"})
+            return {"sent": resp.success_count, "failed": resp.failure_count, "failure_reasons": failures}
+        except Exception as exc:
+            logger.warning("Inline FCM send failed for project %s: %s", project_id, exc)
+            return {"sent": 0, "failed": len(tokens), "disabled": f"inline send error: {exc}"}
+
+    # --- Phase 5 fallback: env-based shard ---
     if not is_shard_configured(shard_id):
         return {"sent": 0, "failed": 0, "disabled": f"FCM shard {shard_id} not configured"}
 

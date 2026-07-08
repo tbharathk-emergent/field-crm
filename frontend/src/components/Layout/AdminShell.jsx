@@ -1,7 +1,7 @@
 import React from "react";
 import { NavLink, Outlet, useNavigate, useParams } from "react-router-dom";
 import {
-  LayoutDashboard, Building2, Tag, Settings, LogOut, Users, Store, Package,
+  LayoutDashboard, Building2, Tag, Settings, Cloud, LogOut, Users, Store, Package,
   ShoppingBag, MessageSquare, BarChart3, Palette, Megaphone, MapPin,
   Globe, Shield, Target as TargetIcon, CalendarDays,
 } from "lucide-react";
@@ -15,6 +15,7 @@ const NAV = {
     { to: "/super-admin", icon: LayoutDashboard, key: "dashboard", end: true },
     { to: "/super-admin/tenants", icon: Building2, key: "tenants" },
     { to: "/super-admin/plans", icon: Tag, key: "plans" },
+    { to: "/super-admin/cloud", icon: Cloud, label: "Cloud" },
     { to: "/super-admin/settings", icon: Settings, key: "settings" },
   ],
   tenant_admin: (slug, tenant) => [

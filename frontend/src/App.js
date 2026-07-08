@@ -17,6 +17,7 @@ import SuperDashboard from "@/pages/SuperAdmin/Dashboard";
 import SuperTenants from "@/pages/SuperAdmin/Tenants";
 import SuperPlans from "@/pages/SuperAdmin/Plans";
 import SuperSettings from "@/pages/SuperAdmin/Settings";
+import SuperCloud from "@/pages/SuperAdmin/Cloud";
 
 // Tenant Admin
 import AdminDashboard from "@/pages/TenantAdmin/Dashboard";
@@ -89,6 +90,7 @@ function App() {
             <Route path="tenants" element={<SuperTenants />} />
             <Route path="plans" element={<SuperPlans />} />
             <Route path="settings" element={<SuperSettings />} />
+            <Route path="cloud" element={<SuperCloud />} />
           </Route>
 
           {/* Tenant Admin */}
