@@ -18,7 +18,7 @@ export default function Sales() {
   });
 
   const load = async () => {
-    const params = { role: "customer" };
+    const params = { role: "dealer" };
     if (user?.role === "employee") params.assigned_employee_id = user.id;
     const [d, p, s] = await Promise.all([
       api.get("/tenant/users", { params }),

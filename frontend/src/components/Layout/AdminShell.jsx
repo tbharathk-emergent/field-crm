@@ -24,6 +24,7 @@ const NAV = {
     { to: `/t/${slug}/admin/roles`, icon: Shield, label: "Roles" },
     { to: `/t/${slug}/admin/employees`, icon: Users, key: "employees" },
     { to: `/t/${slug}/admin/dealers`, icon: Store, label: getLabel(tenant, "dealer_plural", "Dealers") },
+    { to: `/t/${slug}/admin/customers`, icon: Users, label: getLabel(tenant, "customer_plural", "Customers") },
     { to: `/t/${slug}/admin/products`, icon: Package, label: getLabel(tenant, "product_plural", "Products") },
     { to: `/t/${slug}/admin/targets`, icon: TargetIcon, label: "Targets" },
     { to: `/t/${slug}/admin/leaves`, icon: CalendarDays, label: "Leaves" },

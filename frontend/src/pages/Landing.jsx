@@ -23,7 +23,7 @@ export default function Landing() {
         if (!slug) return;
         if (user.role === "tenant_admin") navigate(`/t/${slug}/admin`);
         else if (user.role === "manager") navigate(`/t/${slug}/manager`);
-        else if (user.role === "customer") navigate(`/t/${slug}/shop`);
+        else if (user.role === "customer" || user.role === "dealer") navigate(`/t/${slug}/shop`);
         else navigate(`/t/${slug}/app`);
       }
     }

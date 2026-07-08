@@ -30,6 +30,21 @@ Multi-tenant SaaS Field Force Management platform (FieldCRM / localappstore.in) 
 - Excel/CSV import-export, Emergent Object Storage uploads, 6-language i18n, runtime CSS-var theming
 
 ### Phase 2 (Feb 2026)
+- **Area Hierarchy**, **Custom Roles & Permissions**, **Monthly Targets**, **Leaves**, **Offline Queue**, **GPS Tracking Enhanced** — as previously documented.
+
+### Phase 2.5 — Dealer vs Customer split (Feb 2026)
+- **Dealers (B2B distributors)** and **Customers (B2C farmers)** are now distinct roles + modules end-to-end.
+  - Backend: `role="dealer"` and `role="customer"` are separate. Data migration in seed promotes legacy `role="customer"` with `dealer_code` → `role="dealer"`. Farmer users seeded with `farm_size_acres`/`crops`.
+  - Frontend Admin: separate pages `/admin/dealers` (B2B) and `/admin/customers` (B2C farmers).
+  - Frontend Employee: separate PWA pages `/app/dealers` and `/app/customers`.
+  - **Enquiry** links exclusively to Customers (Farmers) with optional `customer_id` FK.
+  - **Sales & Collections** → Dealers only.
+  - **Visits & DCR** → both dealers and customers selectable per entry (`party_type` field).
+  - Both dealers and customers can log in via the shop PWA and place orders (role-hint on OTP).
+  - New permission module `customers`; sales role gets read+write to both `dealers` and `customers` by default.
+  - Login screen now has 3 tabs: Staff | Dealer | Customer.
+
+### Phase 2 (Feb 2026)
 - **Area Hierarchy** (Country → State → District → Area) — `/api/areas` CRUD, tree UI at `/t/:slug/admin/areas`. 8 nodes seeded for demo tenant (India / Telangana+AP / Hyderabad+Warangal+Karimnagar / Hyderabad N+S).
 - **Custom Roles & Permissions** — `/api/roles`, `/api/permission-modules`, `/api/my-permissions`. UI at `/t/:slug/admin/roles` with module×{read,write} matrix; 2 default roles seeded (Sales Executive, Read-Only Observer). Employees PWA cards gate visibility via `can()`.
 - **Monthly Targets** — `/api/targets` and `/api/targets/progress` with sales actual aggregation. UI at `/t/:slug/admin/targets` (per-employee row with progress bar). Employee PWA home shows progress card. Demo: Anil ₹50k, Priya ₹40k for current month.

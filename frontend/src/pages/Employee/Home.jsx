@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import {
   MapPin, Users, FileText, Wallet, ShoppingCart, ClipboardList,
   MessageSquare, Package, Bell, LogIn, LogOut, ChevronRight, CalendarDays, Target as TargetIcon,
+  Sprout,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -141,7 +142,8 @@ export default function Home() {
 
       {/* Grid */}
       <div className="grid grid-cols-2 gap-3">
-        {card(Users, getLabel(tenant, "dealer_plural", t("my_dealers")), `${base}/dealers`, "#2C5E43", "card-dealers", "dealers")}
+        {card(Users, getLabel(tenant, "dealer_plural", "Dealers"), `${base}/dealers`, "#2C5E43", "card-dealers", "dealers")}
+        {card(Sprout, getLabel(tenant, "customer_plural", "Customers"), `${base}/customers`, "#27AE60", "card-customers", "customers")}
         {card(FileText, t("visit_report"), `${base}/visit`, "#D35400", "card-visit", "visits")}
         {card(Wallet, t("collection_entry"), `${base}/collection`, "#16A085", "card-collection", "collections")}
         {card(ShoppingCart, t("sales_entry"), `${base}/sales`, "#2980B9", "card-sales", "sales")}

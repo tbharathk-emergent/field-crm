@@ -74,7 +74,7 @@ export default function Login() {
       if (u.role === "super_admin") navigate("/super-admin");
       else if (u.role === "tenant_admin") navigate(`/t/${tslug}/admin`);
       else if (u.role === "manager") navigate(`/t/${tslug}/manager`);
-      else if (u.role === "customer") navigate(`/t/${tslug}/shop`);
+      else if (u.role === "customer" || u.role === "dealer") navigate(`/t/${tslug}/shop`);
       else navigate(`/t/${tslug}/app`);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Invalid OTP");
@@ -143,24 +143,33 @@ export default function Login() {
           )}
 
           {isTenantScope && tenant && (
-            <div className="flex gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 data-testid="role-employee-tab"
                 onClick={() => setRoleHint(null)}
-                className={`flex-1 px-3 py-2.5 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 border ${
+                className={`px-2 py-2.5 rounded-xl text-xs font-medium transition flex items-center justify-center gap-1.5 border ${
                   !roleHint ? "bg-brand-primary text-white border-brand-primary" : "bg-white border-brand-line text-brand-ink"
                 }`}
               >
-                <Briefcase size={16} /> Staff
+                <Briefcase size={14} /> Staff
+              </button>
+              <button
+                data-testid="role-dealer-tab"
+                onClick={() => setRoleHint("dealer")}
+                className={`px-2 py-2.5 rounded-xl text-xs font-medium transition flex items-center justify-center gap-1.5 border ${
+                  roleHint === "dealer" ? "bg-brand-secondary text-white border-brand-secondary" : "bg-white border-brand-line text-brand-ink"
+                }`}
+              >
+                <ShoppingBag size={14} /> {tenant.labels?.dealer || "Dealer"}
               </button>
               <button
                 data-testid="role-customer-tab"
                 onClick={() => setRoleHint("customer")}
-                className={`flex-1 px-3 py-2.5 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 border ${
-                  roleHint === "customer" ? "bg-brand-secondary text-white border-brand-secondary" : "bg-white border-brand-line text-brand-ink"
+                className={`px-2 py-2.5 rounded-xl text-xs font-medium transition flex items-center justify-center gap-1.5 border ${
+                  roleHint === "customer" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white border-brand-line text-brand-ink"
                 }`}
               >
-                <ShoppingBag size={16} /> {tenant.labels?.customer || "Customer"}
+                <ShoppingBag size={14} /> {tenant.labels?.customer || "Customer"}
               </button>
             </div>
           )}
@@ -233,13 +242,16 @@ export default function Login() {
                     )}
                     {isTenantScope && creds.users.map((u) => {
                       const isCust = u.role === "customer";
+                      const isDealer = u.role === "dealer";
+                      // Filter based on selected tab
                       if (roleHint === "customer" && !isCust) return null;
-                      if (roleHint !== "customer" && isCust) return null;
+                      if (roleHint === "dealer" && !isDealer) return null;
+                      if (!roleHint && (isCust || isDealer)) return null;
                       return (
                         <button
                           key={u.phone}
                           data-testid={`demo-${u.role}`}
-                          onClick={() => fillDemo(u.phone, isCust ? "customer" : null)}
+                          onClick={() => fillDemo(u.phone, isCust ? "customer" : isDealer ? "dealer" : null)}
                           className="flex items-center justify-between px-3 py-2 rounded-lg border border-brand-line hover:bg-brand-bg text-left"
                         >
                           <span className="text-sm font-medium">{u.label}</span>

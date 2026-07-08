@@ -167,15 +167,16 @@ async def verify_otp(payload: OtpVerifyIn):
     tenant = await resolve_tenant_by_slug(payload.tenant_slug)
 
     role_filter: Dict[str, Any] = {"phone": phone, "tenant_id": tenant["id"]}
-    if payload.role_hint == "customer":
-        role_filter["role"] = "customer"
+    hint = payload.role_hint
+    if hint in ("customer", "dealer"):
+        role_filter["role"] = hint
     else:
         role_filter["role"] = {"$in": ["tenant_admin", "manager", "employee"]}
 
     user = await db.users.find_one(role_filter)
     if not user:
-        # Auto-register customer self-registration
-        if payload.role_hint == "customer":
+        # Auto-register customer (Farmer) self-registration
+        if hint == "customer":
             new_user = User(tenant_id=tenant["id"], phone=phone, name=f"Customer {phone[-4:]}",
                             role="customer", is_active=True)
             await db.users.insert_one(new_user.model_dump())
@@ -233,7 +234,8 @@ async def demo_creds():
             {"label": "Tenant Admin", "phone": "9000000001", "role": "tenant_admin"},
             {"label": "Manager", "phone": "9000000002", "role": "manager"},
             {"label": "Employee", "phone": "9000000003", "role": "employee"},
-            {"label": "Customer/Dealer", "phone": "9000000004", "role": "customer"},
+            {"label": "Dealer", "phone": "9000000004", "role": "dealer"},
+            {"label": "Customer (Farmer)", "phone": "9000000007", "role": "customer"},
         ],
     }
 
@@ -247,8 +249,9 @@ async def list_tenants(user: dict = Depends(require_roles("super_admin"))):
         t = clean(t)
         # Stats
         emp_count = await db.users.count_documents({"tenant_id": t["id"], "role": {"$in": ["employee", "manager"]}})
-        dealer_count = await db.users.count_documents({"tenant_id": t["id"], "role": "customer"})
-        t["stats"] = {"employees": emp_count, "customers": dealer_count}
+        dealer_count = await db.users.count_documents({"tenant_id": t["id"], "role": "dealer"})
+        customer_count = await db.users.count_documents({"tenant_id": t["id"], "role": "customer"})
+        t["stats"] = {"employees": emp_count, "dealers": dealer_count, "customers": customer_count}
         out.append(t)
     return out
 
@@ -430,7 +433,7 @@ async def update_settings(payload: SettingsIn, user: dict = Depends(require_role
 
 # ---------------- Tenant Admin: Tenant branding / labels ----------------
 @api.get("/tenant/profile")
-async def tenant_profile(user: dict = Depends(require_roles("tenant_admin", "manager", "employee", "customer"))):
+async def tenant_profile(user: dict = Depends(require_roles("tenant_admin", "manager", "employee", "customer", "dealer"))):
     t = await db.tenants.find_one({"id": user["tid"]})
     if not t:
         raise HTTPException(404, "Tenant not found")
@@ -464,7 +467,7 @@ async def update_tenant_profile(payload: TenantBrandIn, user: dict = Depends(req
 class UserIn(BaseModel):
     phone: str
     name: str
-    role: str  # tenant_admin | manager | employee | customer
+    role: str  # tenant_admin | manager | employee | dealer | customer
     email: Optional[str] = None
     employee_code: Optional[str] = None
     manager_id: Optional[str] = None
@@ -482,6 +485,8 @@ class UserIn(BaseModel):
     assigned_employee_id: Optional[str] = None
     credit_limit: float = 0
     outstanding_amount: float = 0
+    farm_size_acres: Optional[float] = None
+    crops: Optional[str] = None
 
 
 def _user_query(role_filter, tenant_id):
@@ -554,7 +559,7 @@ class ProductIn(BaseModel):
 @api.get("/tenant/products")
 async def list_products(q: Optional[str] = None,
                         category: Optional[str] = None,
-                        user: dict = Depends(require_roles("tenant_admin", "manager", "employee", "customer"))):
+                        user: dict = Depends(require_roles("tenant_admin", "manager", "employee", "customer", "dealer"))):
     query: Dict[str, Any] = {"tenant_id": user["tid"], "is_active": True}
     if q:
         query["name"] = {"$regex": q, "$options": "i"}
@@ -692,9 +697,12 @@ async def list_locations(user_id: str, date: Optional[str] = None,
 
 # ---------------- Visits ----------------
 class VisitIn(BaseModel):
+    party_type: str = "dealer"  # dealer | customer
     dealer_id: Optional[str] = None
     dealer_name: str = ""
     dealer_code: Optional[str] = None
+    customer_id: Optional[str] = None
+    customer_name: str = ""
     visit_date: str
     visit_time: Optional[str] = None
     lat: Optional[float] = None
@@ -719,6 +727,8 @@ async def create_visit(payload: VisitIn, user: dict = Depends(require_roles("emp
 
 @api.get("/visits")
 async def list_visits(employee_id: Optional[str] = None, dealer_id: Optional[str] = None,
+                      customer_id: Optional[str] = None,
+                      party_type: Optional[str] = None,
                       date_from: Optional[str] = None, date_to: Optional[str] = None,
                       user: dict = Depends(require_roles("tenant_admin", "manager", "employee"))):
     q: Dict[str, Any] = {"tenant_id": user["tid"]}
@@ -728,6 +738,10 @@ async def list_visits(employee_id: Optional[str] = None, dealer_id: Optional[str
         q["employee_id"] = employee_id
     if dealer_id:
         q["dealer_id"] = dealer_id
+    if customer_id:
+        q["customer_id"] = customer_id
+    if party_type:
+        q["party_type"] = party_type
     if date_from or date_to:
         date_q = {}
         if date_from:
@@ -875,6 +889,7 @@ async def list_dcr(employee_id: Optional[str] = None, date_from: Optional[str] =
 
 
 class EnquiryIn(BaseModel):
+    customer_id: Optional[str] = None  # optional link to Farmer user record
     customer_name: str
     mobile: Optional[str] = None
     village: Optional[str] = None
@@ -897,6 +912,9 @@ async def create_enquiry(payload: EnquiryIn,
                 assigned_employee_name=assigned_name, **payload.model_dump())
     if user["role"] == "customer":
         e.source = "customer"
+        # Enquiry from a customer PWA -> link to their own user record
+        if not e.customer_id:
+            e.customer_id = user["sub"]
     await db.enquiries.insert_one(e.model_dump())
     return clean(e.model_dump())
 
@@ -950,12 +968,12 @@ class OrderIn(BaseModel):
 
 
 @api.post("/orders")
-async def create_order(payload: OrderIn, user: dict = Depends(require_roles("customer"))):
+async def create_order(payload: OrderIn, user: dict = Depends(require_roles("customer", "dealer"))):
     if not payload.items:
         raise HTTPException(400, "Order must have items")
     cust = await db.users.find_one({"id": user["sub"]})
     if not cust:
-        raise HTTPException(404, "Customer not found")
+        raise HTTPException(404, "Customer/Dealer not found")
     items: List[OrderItem] = []
     total = 0.0
     for it in payload.items:
@@ -986,9 +1004,9 @@ async def create_order(payload: OrderIn, user: dict = Depends(require_roles("cus
 
 @api.get("/orders")
 async def list_orders(status: Optional[str] = None, customer_id: Optional[str] = None,
-                      user: dict = Depends(require_roles("tenant_admin", "manager", "employee", "customer"))):
+                      user: dict = Depends(require_roles("tenant_admin", "manager", "employee", "customer", "dealer"))):
     q: Dict[str, Any] = {"tenant_id": user["tid"]}
-    if user["role"] == "customer":
+    if user["role"] in ("customer", "dealer"):
         q["customer_id"] = user["sub"]
     elif user["role"] == "employee":
         q["assigned_employee_id"] = user["sub"]
@@ -1007,15 +1025,15 @@ class OrderStatusIn(BaseModel):
 
 @api.patch("/orders/{oid}")
 async def update_order(oid: str, payload: OrderStatusIn,
-                        user: dict = Depends(require_roles("tenant_admin", "manager", "employee", "customer"))):
+                        user: dict = Depends(require_roles("tenant_admin", "manager", "employee", "customer", "dealer"))):
     updates: Dict[str, Any] = {"status": payload.status, "updated_at": now_iso()}
     if payload.rejection_reason:
         updates["rejection_reason"] = payload.rejection_reason
     if payload.status == "approved":
         updates["approved_by"] = user["sub"]
         updates["approved_at"] = now_iso()
-    if user["role"] == "customer" and payload.status not in ["cancelled", "draft"]:
-        raise HTTPException(403, "Customers can only cancel their orders")
+    if user["role"] in ("customer", "dealer") and payload.status not in ["cancelled", "draft"]:
+        raise HTTPException(403, "You can only cancel your orders")
     await db.orders.update_one({"id": oid, "tenant_id": user["tid"]}, {"$set": updates})
     o = await db.orders.find_one({"id": oid})
     return clean(o)
@@ -1183,6 +1201,7 @@ async def tenant_analytics(user: dict = Depends(require_roles("tenant_admin", "m
     tid = user["tid"]
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     employees = await db.users.count_documents({"tenant_id": tid, "role": {"$in": ["employee", "manager"]}, "is_active": True})
+    dealers = await db.users.count_documents({"tenant_id": tid, "role": "dealer", "is_active": True})
     customers = await db.users.count_documents({"tenant_id": tid, "role": "customer", "is_active": True})
     products = await db.products.count_documents({"tenant_id": tid, "is_active": True})
     attendance_today = await db.attendance.count_documents({"tenant_id": tid, "date": today})
@@ -1197,7 +1216,7 @@ async def tenant_analytics(user: dict = Depends(require_roles("tenant_admin", "m
         {"$group": {"_id": None, "sum": {"$sum": "$amount"}}}
     ]).to_list(1)
     out_agg = await db.users.aggregate([
-        {"$match": {"tenant_id": tid, "role": "customer"}},
+        {"$match": {"tenant_id": tid, "role": "dealer"}},
         {"$group": {"_id": None, "sum": {"$sum": "$outstanding_amount"}}}
     ]).to_list(1)
     orders_total = await db.orders.count_documents({"tenant_id": tid})
@@ -1226,6 +1245,7 @@ async def tenant_analytics(user: dict = Depends(require_roles("tenant_admin", "m
     return {
         "kpis": {
             "employees": employees,
+            "dealers": dealers,
             "customers": customers,
             "products": products,
             "attendance_today": attendance_today,
@@ -1385,7 +1405,7 @@ async def my_permissions(user: dict = Depends(get_current_user)):
     if user["role"] == "employee":
         # default: write on field entries, read on others
         default = {m: {"read": False, "write": False} for m in PERMISSION_MODULES}
-        for m in ("visits", "sales", "collections", "dcr", "enquiries", "dealers", "products", "leaves"):
+        for m in ("visits", "sales", "collections", "dcr", "enquiries", "dealers", "customers", "products", "leaves"):
             default[m] = {"read": True, "write": True}
         default["reports"] = {"read": False, "write": False}
         # Overlay custom role
@@ -1400,6 +1420,11 @@ async def my_permissions(user: dict = Depends(get_current_user)):
             "products": {"read": True, "write": False},
             "orders": {"read": True, "write": True},
             "enquiries": {"read": True, "write": True},
+        }}
+    if user["role"] == "dealer":
+        return {"permissions": {
+            "products": {"read": True, "write": False},
+            "orders": {"read": True, "write": True},
         }}
     return {"permissions": {}}
 
@@ -1708,7 +1733,7 @@ async def gps_track(user_id: str, date: str,
         if best and best_d <= 200:
             best["activities"].append({
                 "type": "visit",
-                "title": v.get("dealer_name") or "Visit",
+                "title": v.get("dealer_name") or v.get("customer_name") or "Visit",
                 "id": v["id"],
             })
 

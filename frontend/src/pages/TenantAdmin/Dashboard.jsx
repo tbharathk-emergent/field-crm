@@ -45,13 +45,16 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-2 gap-3">
         <Kpi icon={Users} label="Staff" value={fmt(k.employees)} accent="#2C5E43"
              testid="kpi-employees" to={`${base}/employees`} />
-        <Kpi icon={ShoppingBag} label={getLabel(tenant, "customer_plural", "Customers")}
-             value={fmt(k.customers)} accent="#D35400"
-             testid="kpi-customers" to={`${base}/dealers`} />
+        <Kpi icon={ShoppingBag} label={getLabel(tenant, "dealer_plural", "Dealers")}
+             value={fmt(k.dealers)} accent="#D35400"
+             testid="kpi-dealers" to={`${base}/dealers`} />
+        <Kpi icon={Users} label={getLabel(tenant, "customer_plural", "Customers")}
+             value={fmt(k.customers)} accent="#27AE60"
+             testid="kpi-customers" to={`${base}/customers`} />
         <Kpi icon={Package} label={getLabel(tenant, "product_plural", "Products")}
              value={fmt(k.products)} accent="#2980B9"
              testid="kpi-products" to={`${base}/products`} />
-        <Kpi icon={MapPin} label="Today Att." value={fmt(k.attendance_today)} accent="#27AE60"
+        <Kpi icon={MapPin} label="Today Att." value={fmt(k.attendance_today)} accent="#3498DB"
              testid="kpi-attendance" to={`${base}/employees`} />
         <Kpi icon={TrendingUp} label="Sales (mtd)" value={fmtCur(k.sales_total)} accent="#E67E22"
              testid="kpi-sales" to={`${base}/reports`} />

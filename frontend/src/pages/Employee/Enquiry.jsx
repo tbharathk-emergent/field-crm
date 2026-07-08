@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { Plus, UserPlus } from "lucide-react";
+import { UserPlus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,11 +15,17 @@ export default function Enquiry() {
   const [list, setList] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
-  const [form, setForm] = useState({ customer_name: "", mobile: "", village: "", district: "", category: "", description: "" });
+  const [form, setForm] = useState({
+    customer_id: "", customer_name: "", mobile: "", village: "", district: "",
+    category: "", description: "",
+  });
   const [newCustOpen, setNewCustOpen] = useState(false);
-  const [newCust, setNewCust] = useState({ phone: "", name: "", village: "", district: "", business_name: "" });
+  const [newCust, setNewCust] = useState({
+    phone: "", name: "", village: "", district: "", farm_size_acres: 0, crops: "",
+  });
 
   const load = async () => {
+    // Enquiries are for END CUSTOMERS (farmers) — role="customer"
     const params = { role: "customer" };
     if (user?.role === "employee") params.assigned_employee_id = user.id;
     const [e, c] = await Promise.all([
@@ -31,13 +37,13 @@ export default function Enquiry() {
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [user]);
 
-  // When an existing customer is picked, auto-fill enquiry form fields.
   const pickCustomer = (id) => {
     setSelectedCustomerId(id);
     const c = customers.find(x => x.id === id);
     if (c) {
       setForm(f => ({
         ...f,
+        customer_id: c.id,
         customer_name: c.name || "",
         mobile: c.phone || "",
         village: c.village || "",
@@ -48,7 +54,7 @@ export default function Enquiry() {
 
   const createInlineCustomer = async () => {
     if (!newCust.phone || !newCust.name) return toast.error("Phone & name required");
-    if (!can("dealers", "write")) return toast.error("You don't have permission to create customers");
+    if (!can("customers", "write")) return toast.error("You don't have permission to create customers");
     try {
       const payload = {
         ...newCust, role: "customer",
@@ -56,7 +62,6 @@ export default function Enquiry() {
       };
       const res = await api.post("/tenant/users", payload);
       toast.success("Customer created");
-      // Refresh list and auto-select
       const params = { role: "customer" };
       if (user?.role === "employee") params.assigned_employee_id = user.id;
       const c = await api.get("/tenant/users", { params });
@@ -64,13 +69,14 @@ export default function Enquiry() {
       setSelectedCustomerId(res.data.id);
       setForm(f => ({
         ...f,
+        customer_id: res.data.id,
         customer_name: res.data.name,
         mobile: res.data.phone,
         village: res.data.village || "",
         district: res.data.district || "",
       }));
       setNewCustOpen(false);
-      setNewCust({ phone: "", name: "", village: "", district: "", business_name: "" });
+      setNewCust({ phone: "", name: "", village: "", district: "", farm_size_acres: 0, crops: "" });
     } catch (e) { toast.error(e?.response?.data?.detail || "Failed"); }
   };
 
@@ -79,14 +85,14 @@ export default function Enquiry() {
     try {
       const res = await postOrQueue(api, "/enquiries", form, "enquiry");
       toast.success(res.offline ? "Saved offline — will sync" : "Enquiry created");
-      setForm({ customer_name: "", mobile: "", village: "", district: "", category: "", description: "" });
+      setForm({ customer_id: "", customer_name: "", mobile: "", village: "", district: "", category: "", description: "" });
       setSelectedCustomerId("");
       load();
     } catch { toast.error("Failed"); }
   };
 
   const label = getLabel(tenant, "customer", "Customer");
-  const canCreateCust = can("dealers", "write");
+  const canCreateCust = can("customers", "write");
 
   return (
     <div className="space-y-3 pb-4">
@@ -147,17 +153,20 @@ export default function Enquiry() {
         ))}
       </div>
 
-      {/* Inline create customer modal */}
+      {/* Inline create farmer/customer modal */}
       <Dialog open={newCustOpen} onOpenChange={setNewCustOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Create New {label}</DialogTitle></DialogHeader>
           <div className="space-y-3 py-3">
             <div><Label>Phone *</Label><Input data-testid="new-cust-phone" value={newCust.phone} onChange={(e) => setNewCust({ ...newCust, phone: e.target.value })} /></div>
             <div><Label>Name *</Label><Input data-testid="new-cust-name" value={newCust.name} onChange={(e) => setNewCust({ ...newCust, name: e.target.value })} /></div>
-            <div><Label>Business Name</Label><Input value={newCust.business_name} onChange={(e) => setNewCust({ ...newCust, business_name: e.target.value })} /></div>
             <div className="grid grid-cols-2 gap-2">
               <div><Label>Village</Label><Input value={newCust.village} onChange={(e) => setNewCust({ ...newCust, village: e.target.value })} /></div>
               <div><Label>District</Label><Input value={newCust.district} onChange={(e) => setNewCust({ ...newCust, district: e.target.value })} /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label>Farm (acres)</Label><Input type="number" step="0.1" value={newCust.farm_size_acres} onChange={(e) => setNewCust({ ...newCust, farm_size_acres: +e.target.value })} /></div>
+              <div><Label>Crops</Label><Input value={newCust.crops} onChange={(e) => setNewCust({ ...newCust, crops: e.target.value })} placeholder="Cotton, Paddy" /></div>
             </div>
           </div>
           <DialogFooter>

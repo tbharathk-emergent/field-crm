@@ -23,6 +23,7 @@ import AdminDashboard from "@/pages/TenantAdmin/Dashboard";
 import AdminBranding from "@/pages/TenantAdmin/Branding";
 import AdminEmployees from "@/pages/TenantAdmin/Employees";
 import AdminDealers from "@/pages/TenantAdmin/Dealers";
+import AdminCustomers from "@/pages/TenantAdmin/Customers";
 import AdminProducts from "@/pages/TenantAdmin/Products";
 import AdminOrders from "@/pages/TenantAdmin/Orders";
 import AdminEnquiries from "@/pages/TenantAdmin/Enquiries";
@@ -42,6 +43,7 @@ import ManagerReports from "@/pages/Manager/Reports";
 // Employee PWA
 import EmpHome from "@/pages/Employee/Home";
 import EmpDealers from "@/pages/Employee/Dealers";
+import EmpCustomers from "@/pages/Employee/Customers";
 import EmpVisit from "@/pages/Employee/Visit";
 import EmpCollection from "@/pages/Employee/Collection";
 import EmpSales from "@/pages/Employee/Sales";
@@ -95,6 +97,7 @@ function App() {
             <Route path="branding" element={<AdminBranding />} />
             <Route path="employees" element={<AdminEmployees />} />
             <Route path="dealers" element={<AdminDealers />} />
+            <Route path="customers" element={<AdminCustomers />} />
             <Route path="products" element={<AdminProducts />} />
             <Route path="orders" element={<AdminOrders />} />
             <Route path="enquiries" element={<AdminEnquiries />} />
@@ -138,6 +141,7 @@ function App() {
           >
             <Route index element={<EmpHome />} />
             <Route path="dealers" element={<EmpDealers />} />
+            <Route path="customers" element={<EmpCustomers />} />
             <Route path="visit" element={<EmpVisit />} />
             <Route path="collection" element={<EmpCollection />} />
             <Route path="sales" element={<EmpSales />} />
@@ -149,12 +153,12 @@ function App() {
             <Route path="leaves" element={<EmpLeaves />} />
           </Route>
 
-          {/* Customer PWA */}
+          {/* Customer / Dealer PWA (B2C farmers + B2B dealers can both shop) */}
           <Route
             path="/t/:slug/shop"
             element={
               <TenantScope>
-                <RequireAuth roles={["customer"]}>
+                <RequireAuth roles={["customer", "dealer"]}>
                   <MobileShell variant="customer" />
                 </RequireAuth>
               </TenantScope>

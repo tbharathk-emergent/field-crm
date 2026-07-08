@@ -1,0 +1,32 @@
+{
+  "summary": "Phase 3 (Dealer vs Customer split) verified end-to-end. 18/18 backend pytest tests passed (test_phase3_split.py). Frontend flows all working: login page has 3 role tabs, dealers/customers admin pages show correct data, employee home has both card-dealers & card-customers, visit party-type toggle switches between dealer/customer dropdowns, enquiry lists farmers only, sales/collection list dealers only, dealer login lands on /shop with dealer_code visible.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Employee /app/visit", "issues": ["Visit Date & Next Follow-up use browser's default date input instead of the shadcn calendar/date-picker component. Consistent to fix across app if desired."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_phase3_split.py", "/app/test_reports/pytest/phase3_results.xml"],
+  "action_items": [
+    "(Optional) Replace native <input type='date'> pickers with the shadcn Calendar component for a consistent look across Visit / Enquiry / Sales / Collection forms.",
+    "(Optional) Add data-testid to card-visits and card-enquiries on Employee Home for future testability (currently only card-dealers, card-customers, card-sales exist)."
+  ],
+  "critical_code_review_comments": [
+    "backend/server.py is now ~1800+ lines with the added dealer/customer split — consider splitting into routers/ modules (auth, users, visits, orders, analytics) for maintainability.",
+    "role_hint='customer' auto-registration path silently creates new customer users; ensure phone uniqueness across tenant and a rate-limit / captcha before going to production to prevent spam farmer accounts.",
+    "Enquiry creation from a logged-in customer overrides customer_id server-side — good. Verify same protection exists on POST /api/orders when role='customer' (customer_id/user_id should be forced to auth user).",
+    "GET /api/analytics/tenant nests dealers/customers inside 'kpis' — documented but worth adding OpenAPI response schema for stability."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase3_split.py (new — 18 tests covering user filter, auth role_hint, visits party_type, enquiries, orders, permissions, analytics)"
+  ],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "100% on all requested flows"},
+  "test_credentials": "From /app/memory/test_credentials.md — TA 9000000001, Manager 9000000002, Emp 9000000003, Dealer 9000000004, Customer 9000000007; OTP 123456. Super Admin 9858558555 OTP 557725.",
+  "seed_data_creation": "Test suite creates TEST_-prefixed dealer/customer users and deletes them. Post-run cleanup removed leftover TEST_Dealer1 (2), TEST_Farmer1, Customer 3967, Customer 9657 (auto-registered during customer auto-register test).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Split is complete and stable. All 18 phase-3 backend tests pass plus 23 phase-2 tests (regression). Dealer/customer entities are truly distinct: /api/tenant/users?role=dealer returns only DLR-coded users, ?role=customer returns only farmers with farm_size_acres/crops. Frontend routes /t/demo/admin/dealers and /t/demo/admin/customers show the correct tables; Employee PWA has both card-dealers and card-customers on Home, /app/visit has a party-type toggle, /app/enquiry lists only farmers, /app/sales & /app/collection list only dealers. Dealer & Customer login both route to /t/demo/shop. Note: `role='group'` selector is the correct handle to click before typing OTP via keyboard.type for tests. LocalStorage keys: fc_token, fc_user, fc_tenant_slug.",
+  "rca of the issue": "N/A — no critical bugs found."
+}

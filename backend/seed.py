@@ -99,7 +99,7 @@ async def seed_all(db):
         await _safe_insert(db.users, employee2.model_dump())
 
         customer = User(tenant_id=tenant_id, phone="9000000004", name="Ramesh Naidu",
-                        role="customer", business_name="Naidu Krishi Kendra",
+                        role="dealer", business_name="Naidu Krishi Kendra",
                         dealer_code="DLR001", village="Karimnagar",
                         district="Karimnagar", state="Telangana", pincode="505001",
                         assigned_employee_id=employee.id, credit_limit=50000,
@@ -107,12 +107,27 @@ async def seed_all(db):
         await _safe_insert(db.users, customer.model_dump())
 
         customer2 = User(tenant_id=tenant_id, phone="9000000006", name="Lakshmi Devi",
-                         role="customer", business_name="Devi Agro Centre",
+                         role="dealer", business_name="Devi Agro Centre",
                          dealer_code="DLR002", village="Warangal",
                          district="Warangal", state="Telangana", pincode="506001",
                          assigned_employee_id=employee.id, credit_limit=30000,
                          outstanding_amount=5000)
         await _safe_insert(db.users, customer2.model_dump())
+
+        # Real End-Customers (Farmers) - B2C
+        farmer1 = User(tenant_id=tenant_id, phone="9000000007", name="Venkat Rao",
+                       role="customer", village="Karimnagar",
+                       district="Karimnagar", state="Telangana", pincode="505001",
+                       assigned_employee_id=employee.id,
+                       farm_size_acres=5.5, crops="Cotton, Paddy")
+        await _safe_insert(db.users, farmer1.model_dump())
+
+        farmer2 = User(tenant_id=tenant_id, phone="9000000008", name="Saraswati Bai",
+                       role="customer", village="Warangal",
+                       district="Warangal", state="Telangana", pincode="506001",
+                       assigned_employee_id=employee.id,
+                       farm_size_acres=3.0, crops="Chilli, Turmeric")
+        await _safe_insert(db.users, farmer2.model_dump())
 
         # 6) Demo products
         sample_products = [
@@ -172,7 +187,7 @@ async def seed_all(db):
 
         sales_role_perm = {m: {"read": False, "write": False} for m in PERMISSION_MODULES}
         for m in ("visits", "sales", "collections", "dcr", "enquiries",
-                   "dealers", "products", "leaves", "orders"):
+                   "dealers", "customers", "products", "leaves", "orders"):
             sales_role_perm[m] = {"read": True, "write": True}
 
         sales_role = Role(tenant_id=tenant_id, name="Sales Executive",
@@ -181,7 +196,7 @@ async def seed_all(db):
         await _safe_insert(db.roles, sales_role.model_dump())
 
         readonly_perm = {m: {"read": False, "write": False} for m in PERMISSION_MODULES}
-        for m in ("visits", "sales", "collections", "dcr", "enquiries", "dealers", "products", "leaves"):
+        for m in ("visits", "sales", "collections", "dcr", "enquiries", "dealers", "customers", "products", "leaves"):
             readonly_perm[m] = {"read": True, "write": False}
         readonly_role = Role(tenant_id=tenant_id, name="Read-Only Observer",
                              description="Can see entries but not create them",
@@ -206,6 +221,33 @@ async def seed_all(db):
     demo = await db.tenants.find_one({"slug": "demo"})
     if demo:
         tid = demo["id"]
+        # ---- MIGRATION: split dealer vs customer ----
+        # Legacy users with role="customer" AND non-empty dealer_code -> promote to role="dealer".
+        # This preserves the b2b user data and separates it cleanly from B2C farmers.
+        await db.users.update_many(
+            {"tenant_id": tid, "role": "customer",
+             "dealer_code": {"$nin": [None, ""]}},
+            {"$set": {"role": "dealer"}},
+        )
+        # Repair: any user with farm_size_acres set OR crops set should be role="customer"
+        await db.users.update_many(
+            {"tenant_id": tid, "role": "dealer",
+             "$or": [{"farm_size_acres": {"$ne": None}}, {"crops": {"$nin": [None, ""]}}]},
+            {"$set": {"role": "customer"}},
+        )
+        # Seed farmer customers idempotently
+        for phone, name, village, district, acres, crops in [
+            ("9000000007", "Venkat Rao", "Karimnagar", "Karimnagar", 5.5, "Cotton, Paddy"),
+            ("9000000008", "Saraswati Bai", "Warangal", "Warangal", 3.0, "Chilli, Turmeric"),
+        ]:
+            existing = await db.users.find_one({"tenant_id": tid, "phone": phone})
+            if not existing:
+                emp = await db.users.find_one({"tenant_id": tid, "phone": "9000000003"})
+                f = User(tenant_id=tid, phone=phone, name=name, role="customer",
+                         village=village, district=district, state="Telangana",
+                         farm_size_acres=acres, crops=crops,
+                         assigned_employee_id=emp["id"] if emp else None)
+                await _safe_insert(db.users, f.model_dump())
         # If no areas yet for this tenant, build hierarchy + assign employees
         if await db.areas.count_documents({"tenant_id": tid}) == 0:
             india = AreaNode(tenant_id=tid, name="India", type="country", path=[])
@@ -244,7 +286,7 @@ async def seed_all(db):
         if await db.roles.count_documents({"tenant_id": tid}) == 0:
             sales_role_perm = {m: {"read": False, "write": False} for m in PERMISSION_MODULES}
             for m in ("visits", "sales", "collections", "dcr", "enquiries",
-                       "dealers", "products", "leaves", "orders"):
+                       "dealers", "customers", "products", "leaves", "orders"):
                 sales_role_perm[m] = {"read": True, "write": True}
             sales_role = Role(tenant_id=tid, name="Sales Executive",
                               description="Standard field sales staff with full activity write access",
@@ -253,7 +295,7 @@ async def seed_all(db):
 
             readonly_perm = {m: {"read": False, "write": False} for m in PERMISSION_MODULES}
             for m in ("visits", "sales", "collections", "dcr", "enquiries",
-                       "dealers", "products", "leaves"):
+                       "dealers", "customers", "products", "leaves"):
                 readonly_perm[m] = {"read": True, "write": False}
             readonly_role = Role(tenant_id=tid, name="Read-Only Observer",
                                  description="Can see entries but not create them",

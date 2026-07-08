@@ -78,7 +78,8 @@ class Tenant(BaseModel):
 
 
 # ---------- User / Auth ----------
-ROLE = Literal["super_admin", "tenant_admin", "manager", "employee", "customer"]
+# "dealer" = B2B distributor/retailer, "customer" = B2C end-user (Farmer)
+ROLE = Literal["super_admin", "tenant_admin", "manager", "employee", "dealer", "customer"]
 
 
 class User(BaseModel):
@@ -110,6 +111,9 @@ class User(BaseModel):
     assigned_employee_id: Optional[str] = None
     credit_limit: float = 0.0
     outstanding_amount: float = 0.0
+    # farmer-specific (role="customer")
+    farm_size_acres: Optional[float] = None
+    crops: Optional[str] = None  # comma-separated
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -163,9 +167,12 @@ class Visit(BaseModel):
     tenant_id: str
     employee_id: str
     employee_name: str = ""
+    party_type: str = "dealer"  # dealer | customer
     dealer_id: Optional[str] = None
     dealer_name: str = ""
     dealer_code: Optional[str] = None
+    customer_id: Optional[str] = None
+    customer_name: str = ""
     visit_date: str  # YYYY-MM-DD
     visit_time: Optional[str] = None
     lat: Optional[float] = None
@@ -235,6 +242,7 @@ class Enquiry(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=gen_id)
     tenant_id: str
+    customer_id: Optional[str] = None  # link to users(role="customer") if selected
     customer_name: str
     mobile: Optional[str] = None
     village: Optional[str] = None
@@ -365,7 +373,7 @@ class AreaNode(BaseModel):
 # ---------- Phase 2: Custom Roles & Permissions ----------
 PERMISSION_MODULES = [
     "visits", "sales", "collections", "dcr", "enquiries", "orders",
-    "dealers", "products", "employees", "reports", "gps", "leaves",
+    "dealers", "customers", "products", "employees", "reports", "gps", "leaves",
     "targets", "announcements", "areas", "roles", "branding",
 ]
 

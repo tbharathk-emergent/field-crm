@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, Store, Package, ShoppingBag, MessageSquare, BarChart3,
   Palette, Megaphone, MapPin, Globe, Shield, Target as TargetIcon, CalendarDays,
   Menu, LogOut, Building2, Tag, Settings,
-  FileText, ShoppingCart, Wallet, ClipboardList,
+  FileText, ShoppingCart, Wallet, ClipboardList, Sprout,
 } from "lucide-react";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import OfflineIndicator from "@/components/OfflineIndicator";
@@ -36,7 +36,8 @@ function buildNav(role, slug, tenant) {
         { to: `/t/${slug}/manager/targets`, icon: TargetIcon, label: "Targets", perm: "targets" },
         { to: `/t/${slug}/manager/reports`, icon: BarChart3, label: "Reports", perm: "reports" },
         // Field entry pages (manager can also do own sales/collections/etc when role permits)
-        { to: `/t/${slug}/app/dealers`, icon: Store, label: getLabel(tenant, "customer_plural", "Customers"), perm: "dealers" },
+        { to: `/t/${slug}/app/dealers`, icon: Store, label: getLabel(tenant, "dealer_plural", "Dealers"), perm: "dealers" },
+        { to: `/t/${slug}/app/customers`, icon: Sprout, label: getLabel(tenant, "customer_plural", "Customers"), perm: "customers" },
         { to: `/t/${slug}/app/visit`, icon: FileText, label: "Visit Report", perm: "visits" },
         { to: `/t/${slug}/app/sales`, icon: ShoppingCart, label: "Sales Entry", perm: "sales" },
         { to: `/t/${slug}/app/collection`, icon: Wallet, label: "Collection", perm: "collections" },
@@ -51,10 +52,11 @@ function buildNav(role, slug, tenant) {
     bottom: [
       { to: `/t/${slug}/admin`, icon: LayoutDashboard, label: "Home", end: true, key: "home" },
       { to: `/t/${slug}/admin/employees`, icon: Users, label: "Team", key: "team", perm: "employees" },
-      { to: `/t/${slug}/admin/dealers`, icon: Store, label: getLabel(tenant, "customer_plural", "Customers").split(" ")[0], key: "dealers", perm: "dealers" },
+      { to: `/t/${slug}/admin/dealers`, icon: Store, label: getLabel(tenant, "dealer_plural", "Dealers").split(" ")[0], key: "dealers", perm: "dealers" },
       { to: `/t/${slug}/admin/orders`, icon: ShoppingBag, label: "Orders", key: "orders", perm: "orders" },
     ],
     more: [
+      { to: `/t/${slug}/admin/customers`, icon: Sprout, label: getLabel(tenant, "customer_plural", "Customers"), perm: "customers" },
       { to: `/t/${slug}/admin/branding`, icon: Palette, label: "Branding", perm: "branding" },
       { to: `/t/${slug}/admin/areas`, icon: Globe, label: "Areas", perm: "areas" },
       { to: `/t/${slug}/admin/roles`, icon: Shield, label: "Roles & Permissions", perm: "roles" },
