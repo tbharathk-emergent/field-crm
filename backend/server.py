@@ -1,5 +1,5 @@
 """FieldCRM SaaS multi-tenant backend."""
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, Header, Query, Response
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, Header, Query, Response, Body
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -2650,9 +2650,9 @@ async def delete_my_account(user: dict = Depends(get_current_user)):
     if not u:
         raise HTTPException(404, "User not found")
     if u.get("phone") == REVIEWER_PHONE:
-        raise HTTPException(403, "Reviewer account cannot be deleted")
+        raise HTTPException(403, detail={"code": "reviewer_no_self_delete", "message": "Reviewer account cannot be deleted"})
     if u.get("role") == "super_admin":
-        raise HTTPException(403, "Super admin cannot self-delete via this endpoint")
+        raise HTTPException(403, detail={"code": "super_admin_no_self_delete", "message": "Super admin cannot self-delete via this endpoint"})
 
     outstanding = float(u.get("outstanding_amount") or 0)
     if outstanding > 0:
@@ -2764,7 +2764,10 @@ class PushTestIn(BaseModel):
 
 
 @api.post("/admin/push/test")
-async def push_test(payload: PushTestIn, user: dict = Depends(require_roles("tenant_admin"))):
+async def push_test(
+    payload: PushTestIn = Body(default_factory=PushTestIn),
+    user: dict = Depends(require_roles("tenant_admin")),
+):
     """Send a test push to (a subset of) the tenant's devices.
 
     Returns fcm_service dispatch result — including `disabled` when the shard's

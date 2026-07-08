@@ -134,7 +134,11 @@ def test_reviewer_cannot_self_delete():
     tok = _login("9898989898", tenant_slug=None)["token"]
     r = requests.post(f"{API}/auth/me/delete", headers={"Authorization": f"Bearer {tok}"}, timeout=10)
     assert r.status_code == 403
-    assert "reviewer" in r.json().get("detail", "").lower()
+    detail = r.json().get("detail")
+    if isinstance(detail, dict):
+        assert detail.get("code") == "reviewer_no_self_delete"
+    else:
+        assert "reviewer" in detail.lower()
 
 
 # ---------------- Phase 4 — Soft-delete guards ----------------

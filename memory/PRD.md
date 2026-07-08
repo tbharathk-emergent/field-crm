@@ -205,5 +205,13 @@ Layering "Bizil-Pattern" scaffolding onto the existing MVP. **Golden rule: addit
 - Sonner toaster shifted by safe-area on all four sides.
 - Mobile shells apply `safe-pt` on sticky header and `safe-pb` on fixed bottom nav.
 
-### ⏳ Phase 7 — Docs + full regression via testing_agent_v3_fork
+### ✅ Phase 7 — Docs + full regression (Feb 8, 2026)
+- New `/app/documentation/retrofit-architecture.md` — 7-phase reference (endpoints, models, env vars, credentials, files).
+- Fixed one pre-existing 500-error bug: customer auto-register now returns **409 `{code: "phone_role_conflict"}`** instead of leaking `DuplicateKeyError` when the phone is already registered under a different role.
+- Restored demo tenant name (`Akshara Agro`) and corrected `test_fieldcrm.py` to use the real customer phone (`9000000007`).
+- Applied testing agent's polish items:
+  - `POST /api/admin/push/test` now accepts empty body via `Body(default_factory=PushTestIn)`.
+  - Reviewer / super-admin self-delete 403s now return structured `{code: "reviewer_no_self_delete"}` / `{code: "super_admin_no_self_delete"}` for programmatic frontend handling.
+- `testing_agent_v3_fork` **iteration_6.json → 100% (18/18)** — all seven phases validated end-to-end against live REACT_APP_BACKEND_URL.
+- Full backend pytest: **164 / 164 green** (146 pre-existing + 18 regression suite).
 
