@@ -23,6 +23,7 @@ export default function Branding() {
     google_maps_api_key: tenant?.google_maps_api_key || "",
     order_approval_flow: tenant?.order_approval_flow || "direct",
     catalog_mode: tenant?.catalog_mode || "direct",
+    custom_domain: tenant?.custom_domain || "",
     theme: {
       primary: tenant?.theme?.primary || "#2C5E43",
       secondary: tenant?.theme?.secondary || "#D35400",
@@ -202,6 +203,18 @@ export default function Branding() {
               <div className="sm:col-span-2">
                 <Label>Google Maps API Key (optional)</Label>
                 <Input value={form.google_maps_api_key} onChange={(e) => setForm({ ...form, google_maps_api_key: e.target.value })} placeholder="Defaults to OpenStreetMap" />
+              </div>
+              <div className="sm:col-span-2">
+                <Label>Custom Domain (optional)</Label>
+                <Input
+                  data-testid="tenant-custom-domain-input"
+                  value={form.custom_domain}
+                  onChange={(e) => setForm({ ...form, custom_domain: e.target.value.trim().toLowerCase() })}
+                  placeholder="e.g. portal.acme.com — no https://, no path"
+                />
+                <div className="text-[11px] text-brand-mute mt-1">
+                  Point this hostname&apos;s DNS (CNAME) to the platform, then visitors landing there will auto-load your branding without a slug in the URL.
+                </div>
               </div>
             </div>
           </div>

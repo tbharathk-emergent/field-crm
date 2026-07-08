@@ -99,12 +99,52 @@ export function AppProvider({ children }) {
   };
 
   const loadPublicTenant = useCallback(async (slug) => {
-    const res = await api.get(`/public/tenants/by-slug/${slug}`);
-    setTenant(res.data);
-    setSlug(slug);
-    applyTenantTheme(res.data.theme);
-    return res.data;
+    try {
+      const res = await api.get(`/public/tenants/by-slug/${slug}`);
+      setTenant(res.data);
+      setSlug(slug);
+      applyTenantTheme(res.data.theme);
+      return res.data;
+    } catch (err) {
+      // Phase 2 — Stale tenant self-heal: backend returns 404 with code=tenant_not_found
+      // when a slug has been deleted or renamed. Purge local cache so the app
+      // recovers to Landing instead of looping on a dead tenant.
+      const code = err?.response?.data?.detail?.code;
+      if (err?.response?.status === 404 && code === "tenant_not_found") {
+        setTenant(null);
+        setSlug(null);
+        localStorage.removeItem("fc_tenant");
+      }
+      throw err;
+    }
   }, []);
+
+  // Phase 2 — Subdomain / custom-domain auto-resolution on boot.
+  // Runs once: if the current host maps to a tenant via ROOT_DOMAIN or custom_domain,
+  // hydrate the tenant *without* requiring the user to visit /t/:slug manually.
+  const resolveHostTenant = useCallback(async () => {
+    try {
+      const host = window.location.host;
+      const res = await api.get(`/public/tenant-resolve?host=${encodeURIComponent(host)}`);
+      const t = res.data?.tenant;
+      if (t && t.slug) {
+        setTenant(t);
+        setSlug(t.slug);
+        localStorage.setItem("fc_tenant", JSON.stringify(t));
+        applyTenantTheme(t.theme);
+      }
+      return res.data;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    // Only auto-resolve when the app boots without an active session and no cached tenant.
+    if (!token && !tenant) {
+      resolveHostTenant();
+    }
+  }, [token, tenant, resolveHostTenant]);
 
   const refreshTenant = useCallback(async () => {
     try {
@@ -129,6 +169,7 @@ export function AppProvider({ children }) {
     <AppContext.Provider value={{
       token, user, tenant, lang, setLang, t, permissions, can,
       loginSuccess, logout, loadPublicTenant, refreshTenant, applyTenantTheme, refreshMe,
+      resolveHostTenant,
       customFields, customFieldsFor, features, hasFeature,
     }}>
       {children}

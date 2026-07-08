@@ -75,6 +75,8 @@ class Tenant(BaseModel):
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     address: Optional[str] = None
+    # Phase 2 — Subdomain / custom-domain routing. Additive: defaults null; existing rows untouched.
+    custom_domain: Optional[str] = None  # e.g. "portal.acme.com" — lowercase, no protocol, no path
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 

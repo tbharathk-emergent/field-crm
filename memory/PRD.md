@@ -129,7 +129,16 @@ Layering "Bizil-Pattern" scaffolding onto the existing MVP. **Golden rule: addit
 - Full env reference documented at `/app/documentation/environment-variables.md`.
 - Live smoke test: super-admin login (`9858558555 / 557725`) returns valid 259-char JWT.
 
-### ⏳ Phase 2 — Block A: Multi-tenant subdomain resolver (upcoming, SHIP LIVE)
+### ✅ Phase 2 — Block A: Multi-tenant subdomain resolver (Feb 8, 2026, SHIPPED LIVE)
+- Added `Tenant.custom_domain` (Optional[str], additive, defaults `null`) + sparse-unique index in Mongo.
+- New `/app/backend/tenant_resolver.py` module: pure `normalize_host` + `parse_host_to_slug` helpers, plus positive/negative in-memory TTL caches (`TENANT_CACHE_TTL_SECONDS`, default 300s).
+- New endpoint `GET /api/public/tenant-resolve?host=<host>` — returns `{tenant, matched_by, host, root_domain}`; resolves via `custom_domain` first, then `<slug>.<ROOT_DOMAIN>` subdomain.
+- Stale-tenant self-heal: both `/api/public/tenants/by-slug/:slug` and internal `resolve_tenant_by_slug` now 404 with `{code: "tenant_not_found"}` so the frontend can drop stale localStorage and recover cleanly.
+- Cache invalidation wired into `PATCH /api/tenant/profile`, `PATCH /api/super/tenants/:id`, and `DELETE /api/super/tenants/:id`.
+- Frontend `AppContext` boots with `resolveHostTenant()` — auto-loads tenant when the URL matches a custom domain or subdomain; no `/t/:slug` click required. `loadPublicTenant()` now purges stale localStorage on 404-code.
+- Tenant Admin Branding page adds a **Custom Domain** input (lowercase, trimmed) with a CNAME hint.
+- 9/9 new pytest cases (`tests/test_phase2_subdomain.py`) green. Full backend regression: 120 passed (3 pre-existing failures in `test_fieldcrm.py` are stale demo-data assertions, unrelated to Phase 2).
+- No console errors on landing after Phase 2 changes.
 ### ⏳ Phase 3 — Block C: S3 direct-upload presign + Block E: Privacy/T&C CRUD
 ### ⏳ Phase 4 — Block D: Soft-delete guards + `token_rev` + reviewer bypass `9898989898/123456`
 ### ⏳ Phase 5 — Block B: FCM shards + Capacitor build script

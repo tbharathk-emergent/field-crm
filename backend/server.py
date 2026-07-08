@@ -31,6 +31,7 @@ from auth import (
 )
 import storage_util as storage
 from seed import seed_all
+import tenant_resolver
 
 
 ROOT_DIR = Path(__file__).parent
@@ -82,6 +83,12 @@ async def ensure_indexes():
     """Create unique indexes so multi-worker seed races cannot produce duplicates."""
     await db.tenants.create_index("slug", unique=True)
     await db.tenants.create_index("id", unique=True)
+    # Phase 2 — sparse unique index for custom_domain (nulls allowed).
+    await db.tenants.create_index(
+        "custom_domain",
+        unique=True,
+        partialFilterExpression={"custom_domain": {"$type": "string"}},
+    )
     await db.plans.create_index("code", unique=True)
     await db.plans.create_index("id", unique=True)
     # Phone is unique WITHIN a tenant (super_admin has tenant_id=None so we allow one SA per phone)
@@ -138,7 +145,9 @@ def clean(doc: dict) -> dict:
 async def resolve_tenant_by_slug(slug: str) -> dict:
     t = await db.tenants.find_one({"slug": slug, "is_active": True})
     if not t:
-        raise HTTPException(404, "Tenant not found")
+        # Phase 2 — self-heal signal: a machine-readable code lets the frontend
+        # detect a stale localStorage slug and redirect to landing/root.
+        raise HTTPException(404, detail={"code": "tenant_not_found", "message": "Tenant not found or inactive"})
     return clean(t)
 
 
@@ -250,7 +259,8 @@ async def get_me(user: dict = Depends(get_current_user)):
 async def public_tenant(slug: str):
     t = await db.tenants.find_one({"slug": slug, "is_active": True})
     if not t:
-        raise HTTPException(404, "Tenant not found")
+        # Phase 2 — self-heal: match resolve_tenant_by_slug so frontend can detect stale slugs uniformly.
+        raise HTTPException(404, detail={"code": "tenant_not_found", "message": "Tenant not found or inactive"})
     t = clean(t)
     # Only return public-safe fields
     return {
@@ -279,6 +289,42 @@ async def demo_creds():
             {"label": "Dealer", "phone": "9000000004", "role": "dealer"},
             {"label": "Customer (Farmer)", "phone": "9000000007", "role": "customer"},
         ],
+    }
+
+
+# ---------------- Phase 2: Subdomain / custom-domain resolver ----------------
+@api.get("/public/tenant-resolve")
+async def public_tenant_resolve(
+    host: Optional[str] = Query(None, description="Hostname to resolve; falls back to X-Forwarded-Host / Host headers."),
+    x_forwarded_host: Optional[str] = Header(None, alias="X-Forwarded-Host"),
+    request_host: Optional[str] = Header(None, alias="Host"),
+):
+    """Resolve a tenant from a Host header, custom_domain, or `<slug>.<ROOT_DOMAIN>`.
+
+    Used by the frontend on boot to auto-select the tenant based on the current URL
+    without requiring the user to type a slug or click a landing tile.
+
+    Response shape:
+        { "tenant": { public_view } | null,
+          "matched_by": "custom_domain" | "subdomain" | null,
+          "host": "<normalized host>",
+          "root_domain": "<configured root>" }
+    """
+    raw = host or x_forwarded_host or request_host or ""
+    normalized = tenant_resolver.normalize_host(raw)
+    root = (os.environ.get("ROOT_DOMAIN") or "").strip().lower()
+    result = await tenant_resolver.resolve_tenant_from_host(db, normalized)
+    matched_by: Optional[str] = None
+    if result:
+        if result.get("custom_domain") and result["custom_domain"] == normalized:
+            matched_by = "custom_domain"
+        elif tenant_resolver.parse_host_to_slug(normalized, root) == result.get("slug"):
+            matched_by = "subdomain"
+    return {
+        "tenant": result,
+        "matched_by": matched_by,
+        "host": normalized,
+        "root_domain": root or None,
     }
 
 
@@ -372,12 +418,14 @@ async def update_tenant_super(tenant_id: str, payload: TenantUpdateIn,
     if res.matched_count == 0:
         raise HTTPException(404, "Tenant not found")
     t = await db.tenants.find_one({"id": tenant_id})
+    tenant_resolver.invalidate_all()
     return clean(t)
 
 
 @api.delete("/super/tenants/{tenant_id}")
 async def delete_tenant(tenant_id: str, user: dict = Depends(require_roles("super_admin"))):
     await db.tenants.update_one({"id": tenant_id}, {"$set": {"is_active": False, "updated_at": now_iso()}})
+    tenant_resolver.invalidate_all()
     return {"ok": True}
 
 
@@ -497,14 +545,26 @@ class TenantBrandIn(BaseModel):
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     address: Optional[str] = None
+    custom_domain: Optional[str] = None  # Phase 2 — subdomain routing
 
 
 @api.patch("/tenant/profile")
 async def update_tenant_profile(payload: TenantBrandIn, user: dict = Depends(require_roles("tenant_admin"))):
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # Phase 2: normalize custom_domain (lowercase, strip). Additive; never rejects.
+    if "custom_domain" in updates:
+        cd = (updates["custom_domain"] or "").strip().lower()
+        updates["custom_domain"] = cd or None
+        if cd:
+            # Enforce uniqueness — a domain may only bind to one tenant.
+            clash = await db.tenants.find_one({"custom_domain": cd, "id": {"$ne": user["tid"]}})
+            if clash:
+                raise HTTPException(409, "custom_domain already in use by another tenant")
     updates["updated_at"] = now_iso()
     await db.tenants.update_one({"id": user["tid"]}, {"$set": updates})
     t = await db.tenants.find_one({"id": user["tid"]})
+    # Bust resolver cache — any host bound to this tenant becomes stale.
+    tenant_resolver.invalidate_all()
     return clean(t)
 
 
