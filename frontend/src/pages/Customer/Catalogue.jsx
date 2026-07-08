@@ -10,7 +10,7 @@ const readCart = () => { try { return JSON.parse(localStorage.getItem(CART_KEY))
 const writeCart = (c) => localStorage.setItem(CART_KEY, JSON.stringify(c));
 
 export default function Catalogue() {
-  const { tenant, user, t } = useApp();
+  const { tenant, user, t, refreshTenant } = useApp();
   const [list, setList] = useState([]);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState(readCart);
@@ -18,7 +18,11 @@ export default function Catalogue() {
 
   const enquiryOnly = tenant?.catalog_mode === "enquiry_only";
 
-  useEffect(() => { api.get("/tenant/products").then(r => setList(r.data)); }, []);
+  useEffect(() => {
+    api.get("/tenant/products").then(r => setList(r.data));
+    // Refetch tenant profile in case admin toggled catalog_mode
+    if (refreshTenant) refreshTenant();
+  }, [refreshTenant]);
 
   const setQty = (id, qty) => {
     const c = { ...cart };

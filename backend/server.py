@@ -1472,7 +1472,13 @@ async def create_custom_field(payload: CustomFieldIn,
         raise HTTPException(400, "field_key must be alphanumeric/underscore")
     existing = await db.custom_fields.find_one({"tenant_id": user["tid"], "module": payload.module, "field_key": key})
     if existing:
-        raise HTTPException(400, f"Field '{key}' already exists on {payload.module} module")
+        if existing.get("is_active"):
+            raise HTTPException(400, f"Field '{key}' already exists on {payload.module} module")
+        # Reactivate soft-deleted field with fresh config
+        updates = {**payload.model_dump(), "field_key": key, "is_active": True, "updated_at": now_iso()}
+        await db.custom_fields.update_one({"id": existing["id"]}, {"$set": updates})
+        cf = await db.custom_fields.find_one({"id": existing["id"]})
+        return clean(cf)
     cf = CustomField(tenant_id=user["tid"], **{**payload.model_dump(), "field_key": key})
     await db.custom_fields.insert_one(cf.model_dump())
     return clean(cf.model_dump())

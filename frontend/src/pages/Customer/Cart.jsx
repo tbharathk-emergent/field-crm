@@ -8,7 +8,7 @@ import { useApp } from "@/context/AppContext";
 const CART_KEY = "fc_cart";
 
 export default function Cart() {
-  const { tenant, user, t } = useApp();
+  const { tenant, user, t, refreshTenant } = useApp();
   const navigate = useNavigate();
   const { slug } = useParams();
   const [products, setProducts] = useState([]);
@@ -19,7 +19,8 @@ export default function Cart() {
   useEffect(() => {
     setCart(JSON.parse(localStorage.getItem(CART_KEY) || "{}"));
     api.get("/tenant/products").then(r => setProducts(r.data));
-  }, []);
+    if (refreshTenant) refreshTenant();
+  }, [refreshTenant]);
 
   const update = (c) => { setCart(c); localStorage.setItem(CART_KEY, JSON.stringify(c)); };
   const setQty = (id, qty) => {
