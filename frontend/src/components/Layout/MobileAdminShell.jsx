@@ -69,6 +69,7 @@ function buildNav(role, slug, tenant) {
       { to: `/t/${slug}/admin/enquiries`, icon: MessageSquare, label: "Enquiries", perm: "enquiries" },
       { to: `/t/${slug}/admin/reports`, icon: BarChart3, label: "Reports", perm: "reports" },
       { to: `/t/${slug}/admin/announcements`, icon: Megaphone, label: "Announcements", perm: "announcements" },
+      { to: `/t/${slug}/admin/legal`, icon: FileText, label: "Legal Documents", perm: "branding" },
     ],
   };
 }

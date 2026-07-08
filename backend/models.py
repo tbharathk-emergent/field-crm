@@ -121,6 +121,10 @@ class User(BaseModel):
     my_crops: List[str] = []  # crop_ids the farmer has selected in Crop Advisor
     # Custom fields (tenant-defined) → {field_key: value}
     custom_data: Dict[str, Any] = {}
+    # Phase 4 — Soft-delete + session revocation (additive, defaults null).
+    deleted_at: Optional[str] = None
+    # Any JWT with iat < token_revoked_after is rejected. Bump on logout-all / password change / self-delete.
+    token_revoked_after: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -608,3 +612,29 @@ class RecentView(BaseModel):
     entity_type: str
     entity_id: str
     viewed_at: str = Field(default_factory=now_iso)
+
+
+# ---------- Phase 3 — Legal Documents (Privacy / T&C / Refund / Shipping / About) ----------
+LEGAL_KINDS = ("privacy", "terms", "refund", "shipping", "about", "contact")
+
+
+class LegalDocument(BaseModel):
+    """Per-tenant legal documents. Multiple versions per kind allowed;
+    only the latest with `is_published=True` is served publicly.
+
+    Additive: existing tenants have zero rows here — the public GET returns 404
+    with a fallback marker so the frontend can render a platform default.
+    """
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    tenant_id: str
+    kind: str  # one of LEGAL_KINDS
+    title: str = ""
+    content_md: str = ""  # markdown body
+    version: int = 1
+    is_published: bool = False
+    published_at: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+    updated_by: Optional[str] = None
+

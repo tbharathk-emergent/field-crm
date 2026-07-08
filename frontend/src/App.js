@@ -35,6 +35,7 @@ import AdminTargets from "@/pages/TenantAdmin/Targets";
 import AdminLeaves from "@/pages/TenantAdmin/Leaves";
 import AdminCustomFields from "@/pages/TenantAdmin/CustomFields";
 import AdvisorAdmin from "@/pages/TenantAdmin/AdvisorAdmin";
+import AdminLegal from "@/pages/TenantAdmin/LegalDocs";
 import CropAdvisor from "@/pages/Advisor/CropAdvisor";
 
 // Manager
@@ -64,6 +65,9 @@ import CustCart from "@/pages/Customer/Cart";
 import CustOrders from "@/pages/Customer/Orders";
 import CustAccount from "@/pages/Customer/Account";
 
+// Public legal (Phase 3) — Privacy / Terms / Refund / Shipping / About / Contact
+import LegalPage from "@/pages/Legal";
+
 function App() {
   return (
     <AppProvider>
@@ -72,6 +76,8 @@ function App() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/legal/:kind" element={<LegalPage />} />
+          <Route path="/t/:slug/legal/:kind" element={<LegalPage />} />
           <Route path="/t/:slug" element={<TenantScope><Login /></TenantScope>} />
 
           {/* Super Admin */}
@@ -112,6 +118,7 @@ function App() {
             <Route path="leaves" element={<AdminLeaves />} />
             <Route path="custom-fields" element={<AdminCustomFields />} />
             <Route path="advisor" element={<AdvisorAdmin />} />
+            <Route path="legal" element={<AdminLegal />} />
           </Route>
 
           {/* Manager */}

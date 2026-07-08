@@ -22,6 +22,17 @@ SUPER_ADMIN_PHONE = os.environ["SUPER_ADMIN_PHONE"]
 SUPER_ADMIN_OTP = os.environ["SUPER_ADMIN_OTP"]
 DEMO_OTP = os.environ["DEMO_OTP"]
 
+# Phase 4 — Universal reviewer bypass (App Store / Play Store review accounts).
+# This phone always logs in as a demo tenant_admin using DEMO_OTP so reviewers
+# can traverse the app without a real SIM. Constant on purpose (not env-driven):
+# reviewers must be able to reproduce the exact credentials from any doc.
+REVIEWER_PHONE = "9898989898"
+REVIEWER_TENANT_SLUG = "demo"
+
+
+def is_reviewer_phone(phone: str) -> bool:
+    return phone == REVIEWER_PHONE
+
 
 def make_token(user_id: str, tenant_id: Optional[str], role: str, phone: str) -> str:
     payload = {
@@ -48,7 +59,25 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing authorization")
     token = authorization.split(" ", 1)[1]
-    return decode_token(token)
+    payload = decode_token(token)
+    # Phase 4 — Session revocation hook. server.py registers a validator that
+    # checks `users.token_revoked_after` (soft-delete, forced logout, etc.).
+    # Kept optional so unit tests without DB still work.
+    validator = _SESSION_VALIDATOR
+    if validator is not None:
+        await validator(payload)
+    return payload
+
+
+# Phase 4 — server.py registers a DB-backed session validator via set_session_validator().
+_SESSION_VALIDATOR = None
+
+
+def set_session_validator(fn) -> None:
+    """Install an async fn(payload:dict) that raises HTTPException(401) if the
+    session has been revoked (e.g. user soft-deleted or logged-out-all)."""
+    global _SESSION_VALIDATOR
+    _SESSION_VALIDATOR = fn
 
 
 def require_roles(*allowed_roles):
@@ -60,7 +89,7 @@ def require_roles(*allowed_roles):
 
 
 def expected_otp(phone: str) -> str:
-    """Mock OTP: super admin gets 557725, everyone else gets 123456."""
+    """Mock OTP: super admin gets SUPER_ADMIN_OTP; reviewer & everyone else get DEMO_OTP."""
     if phone == SUPER_ADMIN_PHONE:
         return SUPER_ADMIN_OTP
     return DEMO_OTP

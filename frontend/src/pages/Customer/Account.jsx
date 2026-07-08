@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { LogOut, Save } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { LogOut, Save, Trash2, ShieldCheck, FileText } from "lucide-react";
+import { useNavigate, Link } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,6 +12,7 @@ import CustomFieldsForm from "@/components/CustomFieldsForm";
 export default function Account() {
   const { user, tenant, t, logout, refreshMe } = useApp();
   const navigate = useNavigate();
+  const [deleting, setDeleting] = useState(false);
   const [profile, setProfile] = useState({
     name: user?.name || "",
     email: user?.email || "",
@@ -52,6 +53,24 @@ export default function Account() {
       toast.success("Enquiry sent");
       setEnq({ ...enq, category: "", description: "" });
     } catch { toast.error("Failed"); }
+  };
+
+  const deleteAccount = async () => {
+    const msg = "Delete your account permanently?\n\nYour profile will be soft-deleted and this session will be signed out. If you have any outstanding balance or active orders, the request will be blocked with an explanation.";
+    if (!window.confirm(msg)) return;
+    setDeleting(true);
+    try {
+      await api.post("/auth/me/delete");
+      toast.success("Account deleted");
+      logout();
+      navigate("/");
+    } catch (e) {
+      const d = e?.response?.data?.detail;
+      const message = (d && typeof d === "object" && d.message) || d || "Failed to delete";
+      toast.error(String(message));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -120,9 +139,41 @@ export default function Account() {
         <button onClick={sendEnq} className="btn-primary w-full">Send</button>
       </div>
 
+      <div className="card-surface p-4 space-y-3">
+        <div className="text-xs text-brand-mute uppercase tracking-wider flex items-center gap-2">
+          <ShieldCheck size={14} /> Legal & Support
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <Link to={`/t/${tenant?.slug}/legal/privacy`} className="text-brand-primary hover:underline inline-flex items-center gap-1.5" data-testid="legal-privacy-link">
+            <FileText size={14} /> Privacy Policy
+          </Link>
+          <Link to={`/t/${tenant?.slug}/legal/terms`} className="text-brand-primary hover:underline inline-flex items-center gap-1.5" data-testid="legal-terms-link">
+            <FileText size={14} /> Terms of Service
+          </Link>
+          <Link to={`/t/${tenant?.slug}/legal/refund`} className="text-brand-primary hover:underline inline-flex items-center gap-1.5" data-testid="legal-refund-link">
+            <FileText size={14} /> Refund Policy
+          </Link>
+          <Link to={`/t/${tenant?.slug}/legal/contact`} className="text-brand-primary hover:underline inline-flex items-center gap-1.5" data-testid="legal-contact-link">
+            <FileText size={14} /> Contact Us
+          </Link>
+        </div>
+      </div>
+
       <button onClick={() => { logout(); navigate("/"); }} className="btn-secondary w-full">
         <LogOut size={16} /> {t("logout")}
       </button>
+
+      <button
+        onClick={deleteAccount}
+        disabled={deleting}
+        className="w-full mt-2 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-red-300 text-red-700 bg-white hover:bg-red-50 disabled:opacity-50 text-sm font-medium"
+        data-testid="delete-account-btn"
+      >
+        <Trash2 size={16} /> {deleting ? "Deleting…" : "Delete My Account"}
+      </button>
+      <p className="text-[11px] text-brand-mute text-center px-4">
+        Deleting your account is permanent. Any outstanding balance or active orders must be cleared first.
+      </p>
     </div>
   );
 }

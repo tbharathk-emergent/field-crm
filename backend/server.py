@@ -24,14 +24,17 @@ from models import (
     CustomField, CUSTOM_FIELD_MODULES, CUSTOM_FIELD_TYPES,
     Crop, AdvisoryEntry, SeasonalAdvisory, UserFavorite, RecentView,
     ADVISORY_TYPES,
+    LegalDocument, LEGAL_KINDS,
 )
 from auth import (
     make_token, decode_token, get_current_user, require_roles,
     expected_otp, is_super_admin_phone, SUPER_ADMIN_PHONE, SUPER_ADMIN_OTP, DEMO_OTP,
+    is_reviewer_phone, REVIEWER_PHONE, REVIEWER_TENANT_SLUG, set_session_validator,
 )
 import storage_util as storage
 from seed import seed_all
 import tenant_resolver
+import s3_presign
 
 
 ROOT_DIR = Path(__file__).parent
@@ -112,11 +115,47 @@ async def ensure_indexes():
     await db.seasonal_advisories.create_index([("tenant_id", 1), ("is_published", 1)])
     await db.user_favorites.create_index([("user_id", 1), ("entity_id", 1)], unique=True)
     await db.recent_views.create_index([("user_id", 1), ("viewed_at", -1)])
+    # Phase 3 — Legal docs: one row per (tenant, kind, version). Multiple versions allowed; latest published is served.
+    await db.legal_docs.create_index([("tenant_id", 1), ("kind", 1), ("version", -1)])
+    await db.legal_docs.create_index([("tenant_id", 1), ("kind", 1), ("is_published", 1)])
+
+
+# Phase 4 — Session revocation: reject tokens issued before user.token_revoked_after.
+async def _session_validator(payload: dict) -> None:
+    uid = payload.get("sub")
+    if not uid:
+        return
+    u = await db.users.find_one(
+        {"id": uid},
+        {"is_active": 1, "deleted_at": 1, "token_revoked_after": 1},
+    )
+    if not u:
+        raise HTTPException(401, "User no longer exists")
+    if u.get("deleted_at"):
+        raise HTTPException(401, "Account deleted")
+    if not u.get("is_active", True):
+        raise HTTPException(401, "Account disabled")
+    revoked_after = u.get("token_revoked_after")
+    iat = payload.get("iat")
+    if revoked_after and iat:
+        # `iat` is a numeric Unix timestamp per PyJWT; convert revoked_after ISO → epoch.
+        try:
+            from datetime import datetime as _dt
+            rev_ts = _dt.fromisoformat(revoked_after.replace("Z", "+00:00")).timestamp()
+            iat_ts = float(iat) if not isinstance(iat, (int, float)) else iat
+            if iat_ts < rev_ts:
+                raise HTTPException(401, "Session revoked, please sign in again")
+        except HTTPException:
+            raise
+        except Exception:
+            # Malformed timestamps should never silently allow access.
+            raise HTTPException(401, "Session state invalid")
 
 
 @app.on_event("startup")
 async def startup():
     await ensure_indexes()
+    set_session_validator(_session_validator)  # Phase 4 — attach revocation check to all Bearer requests.
     try:
         await seed_all(db)
     except Exception as e:
@@ -211,6 +250,35 @@ async def verify_otp(payload: OtpVerifyIn):
         sa = clean(sa)
         token = make_token(sa["id"], None, "super_admin", phone)
         return {"token": token, "user": sa, "tenant": None}
+
+    # Phase 4 — Universal reviewer bypass (App Store / Play Store).
+    # The reviewer number always logs into the demo tenant as a tenant_admin.
+    # The seeded user is fetched (or created idempotently) here to keep the
+    # reviewer experience identical across environments.
+    if is_reviewer_phone(phone):
+        rt = await db.tenants.find_one({"slug": REVIEWER_TENANT_SLUG, "is_active": True})
+        if not rt:
+            raise HTTPException(503, "Reviewer tenant not provisioned")
+        rt = clean(rt)
+        ru = await db.users.find_one({"phone": REVIEWER_PHONE, "tenant_id": rt["id"]})
+        if not ru:
+            reviewer = User(
+                tenant_id=rt["id"], phone=REVIEWER_PHONE, name="App Store Reviewer",
+                role="tenant_admin", is_active=True, email="reviewer@localappstore.in",
+            )
+            await db.users.insert_one(reviewer.model_dump())
+            ru = reviewer.model_dump()
+        else:
+            # If a prior soft-delete happened, un-delete reviewer (App Store re-audits happen).
+            if ru.get("deleted_at") or not ru.get("is_active", True):
+                await db.users.update_one(
+                    {"id": ru["id"]},
+                    {"$set": {"deleted_at": None, "is_active": True, "token_revoked_after": None, "updated_at": now_iso()}},
+                )
+                ru = await db.users.find_one({"id": ru["id"]})
+        ru = clean(ru)
+        token = make_token(ru["id"], rt["id"], ru["role"], phone)
+        return {"token": token, "user": ru, "tenant": rt}
 
     # Tenant user path
     if not payload.tenant_slug:
@@ -2360,6 +2428,243 @@ async def gps_live(user: dict = Depends(require_roles("tenant_admin", "manager")
 
 
 # ==================== END PHASE 2 ====================
+
+
+# ==================== PHASE 3: S3 UPLOADS + LEGAL DOCS ====================
+class PresignIn(BaseModel):
+    filename: str
+    content_type: Optional[str] = None
+    module: Optional[str] = None  # dealer | customer | product | enquiry | visit | legal | ...
+
+
+@api.post("/uploads/presign")
+async def presign_upload(payload: PresignIn, user: dict = Depends(get_current_user)):
+    """Return a presigned PUT URL for direct S3 upload from the browser/app.
+
+    503 with a clear message if S3 env vars are unset — the rest of the app
+    continues to work with the existing Emergent Object Storage flow.
+    """
+    if not s3_presign.is_configured():
+        raise HTTPException(503, "S3 uploads not configured on this environment")
+    key = s3_presign.build_key(user.get("tid"), user.get("sub"), payload.module, payload.filename)
+    try:
+        info = s3_presign.presign_put(key, payload.content_type)
+    except s3_presign.S3NotConfigured as e:
+        raise HTTPException(503, str(e))
+    return info
+
+
+# ---- Legal documents (Privacy / Terms / Refund / Shipping / About / Contact) ----
+class LegalUpsertIn(BaseModel):
+    kind: str
+    title: Optional[str] = None
+    content_md: str = ""
+    publish: bool = False
+
+
+def _validate_kind(kind: str) -> None:
+    if kind not in LEGAL_KINDS:
+        raise HTTPException(400, f"Invalid kind. Must be one of: {', '.join(LEGAL_KINDS)}")
+
+
+async def _resolve_public_tenant_id(
+    slug: Optional[str], host_hdr: Optional[str], xfh_hdr: Optional[str]
+) -> Optional[str]:
+    if slug:
+        t = await db.tenants.find_one({"slug": slug, "is_active": True}, {"id": 1})
+        if t:
+            return t["id"]
+    host = tenant_resolver.normalize_host(xfh_hdr or host_hdr)
+    if host:
+        t = await tenant_resolver.resolve_tenant_from_host(db, host)
+        if t:
+            return t["id"]
+    return None
+
+
+@api.get("/public/legal/{kind}")
+async def public_legal(
+    kind: str,
+    slug: Optional[str] = Query(None),
+    x_tenant_slug: Optional[str] = Header(None, alias="X-Tenant-Slug"),
+    request_host: Optional[str] = Header(None, alias="Host"),
+    x_forwarded_host: Optional[str] = Header(None, alias="X-Forwarded-Host"),
+):
+    """Return the latest published legal doc for a tenant.
+
+    Tenant resolution order: `?slug=` → `X-Tenant-Slug` header → Host header (custom domain / subdomain).
+    Returns 404 with `code=legal_not_found` when the tenant has never published this kind — the frontend
+    should render a platform-default fallback in that case.
+    """
+    _validate_kind(kind)
+    tenant_id = await _resolve_public_tenant_id(slug or x_tenant_slug, request_host, x_forwarded_host)
+    if not tenant_id:
+        raise HTTPException(404, detail={"code": "tenant_not_resolved", "message": "Tenant could not be resolved"})
+    doc = await db.legal_docs.find_one(
+        {"tenant_id": tenant_id, "kind": kind, "is_published": True},
+        sort=[("version", -1)],
+    )
+    if not doc:
+        raise HTTPException(404, detail={"code": "legal_not_found", "kind": kind, "tenant_id": tenant_id})
+    doc = clean(doc)
+    return {
+        "kind": doc["kind"],
+        "title": doc.get("title") or kind.capitalize(),
+        "content_md": doc.get("content_md", ""),
+        "version": doc.get("version", 1),
+        "published_at": doc.get("published_at"),
+    }
+
+
+@api.get("/admin/legal")
+async def list_legal(user: dict = Depends(require_roles("tenant_admin"))):
+    """List all legal doc versions for the current tenant (admin view)."""
+    docs = await db.legal_docs.find({"tenant_id": user["tid"]}).sort("updated_at", -1).to_list(500)
+    return [clean(d) for d in docs]
+
+
+@api.get("/admin/legal/{kind}/latest")
+async def get_legal_latest(kind: str, user: dict = Depends(require_roles("tenant_admin"))):
+    _validate_kind(kind)
+    doc = await db.legal_docs.find_one(
+        {"tenant_id": user["tid"], "kind": kind}, sort=[("version", -1)]
+    )
+    if not doc:
+        return {"kind": kind, "title": "", "content_md": "", "version": 0, "is_published": False}
+    return clean(doc)
+
+
+@api.post("/admin/legal")
+async def upsert_legal(payload: LegalUpsertIn, user: dict = Depends(require_roles("tenant_admin"))):
+    """Create a new version. If publish=True, marks it published and returns it.
+
+    Publishing atomically demotes prior versions of the same kind so only the
+    newest published row is served publicly.
+    """
+    _validate_kind(payload.kind)
+    latest = await db.legal_docs.find_one(
+        {"tenant_id": user["tid"], "kind": payload.kind}, sort=[("version", -1)]
+    )
+    next_version = int((latest or {}).get("version", 0)) + 1
+    doc = LegalDocument(
+        tenant_id=user["tid"],
+        kind=payload.kind,
+        title=payload.title or payload.kind.capitalize(),
+        content_md=payload.content_md,
+        version=next_version,
+        is_published=bool(payload.publish),
+        published_at=now_iso() if payload.publish else None,
+        updated_by=user["sub"],
+    )
+    if payload.publish:
+        await db.legal_docs.update_many(
+            {"tenant_id": user["tid"], "kind": payload.kind, "is_published": True},
+            {"$set": {"is_published": False, "updated_at": now_iso()}},
+        )
+    await db.legal_docs.insert_one(doc.model_dump())
+    return clean(doc.model_dump())
+
+
+@api.post("/admin/legal/{doc_id}/publish")
+async def publish_legal(doc_id: str, user: dict = Depends(require_roles("tenant_admin"))):
+    doc = await db.legal_docs.find_one({"id": doc_id, "tenant_id": user["tid"]})
+    if not doc:
+        raise HTTPException(404, "Legal doc not found")
+    await db.legal_docs.update_many(
+        {"tenant_id": user["tid"], "kind": doc["kind"], "is_published": True},
+        {"$set": {"is_published": False, "updated_at": now_iso()}},
+    )
+    await db.legal_docs.update_one(
+        {"id": doc_id},
+        {"$set": {"is_published": True, "published_at": now_iso(), "updated_at": now_iso()}},
+    )
+    d = await db.legal_docs.find_one({"id": doc_id})
+    return clean(d)
+
+
+@api.delete("/admin/legal/{doc_id}")
+async def delete_legal(doc_id: str, user: dict = Depends(require_roles("tenant_admin"))):
+    r = await db.legal_docs.delete_one({"id": doc_id, "tenant_id": user["tid"]})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Legal doc not found")
+    return {"ok": True}
+
+
+# ==================== END PHASE 3 ====================
+
+
+# ==================== PHASE 4: SOFT-DELETE + SESSION REVOCATION ====================
+# Order statuses that count as "active" (non-terminal) — a user with any of these
+# open orders cannot self-delete until they are resolved.
+_ACTIVE_ORDER_STATUSES = ("draft", "submitted", "approved", "packed", "dispatched")
+
+
+async def _has_active_orders(tenant_id: str, user_id: str) -> bool:
+    n = await db.orders.count_documents({
+        "tenant_id": tenant_id,
+        "customer_id": user_id,
+        "status": {"$in": list(_ACTIVE_ORDER_STATUSES)},
+    })
+    return n > 0
+
+
+@api.post("/auth/me/delete")
+async def delete_my_account(user: dict = Depends(get_current_user)):
+    """Soft-delete the authenticated user (App Store / Play Store compliance).
+
+    Strict guards:
+      * Reject if `outstanding_amount > 0` (customers / dealers).
+      * Reject if there is any active (non-terminal) order for this user.
+
+    On success: sets `is_active=false`, `deleted_at=now`, `token_revoked_after=now`.
+    All existing JWTs for this user become invalid on the next request.
+
+    Reviewer bypass: the App Store reviewer account (phone 9898989898) is
+    prevented from self-deleting so reviewers can traverse the app repeatedly.
+    """
+    uid = user["sub"]
+    u = await db.users.find_one({"id": uid})
+    if not u:
+        raise HTTPException(404, "User not found")
+    if u.get("phone") == REVIEWER_PHONE:
+        raise HTTPException(403, "Reviewer account cannot be deleted")
+    if u.get("role") == "super_admin":
+        raise HTTPException(403, "Super admin cannot self-delete via this endpoint")
+
+    outstanding = float(u.get("outstanding_amount") or 0)
+    if outstanding > 0:
+        raise HTTPException(
+            409,
+            detail={"code": "outstanding_balance",
+                    "message": f"Settle outstanding balance of {outstanding} before deleting your account.",
+                    "outstanding_amount": outstanding},
+        )
+
+    tid = u.get("tenant_id")
+    if tid and await _has_active_orders(tid, uid):
+        raise HTTPException(
+            409,
+            detail={"code": "active_orders",
+                    "message": "You have active orders. Wait for them to be delivered or cancelled before deleting your account."},
+        )
+
+    ts = now_iso()
+    await db.users.update_one(
+        {"id": uid},
+        {"$set": {"is_active": False, "deleted_at": ts, "token_revoked_after": ts, "updated_at": ts}},
+    )
+    return {"ok": True, "deleted_at": ts}
+
+
+@api.post("/auth/logout-all")
+async def logout_all(user: dict = Depends(get_current_user)):
+    """Revoke every JWT ever issued to this user (self-service kill switch)."""
+    ts = now_iso()
+    await db.users.update_one({"id": user["sub"]}, {"$set": {"token_revoked_after": ts}})
+    return {"ok": True, "revoked_after": ts}
+
+
+# ==================== END PHASE 4 ====================
 
 
 # Include routes & CORS

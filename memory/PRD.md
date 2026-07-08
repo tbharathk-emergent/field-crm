@@ -139,8 +139,43 @@ Layering "Bizil-Pattern" scaffolding onto the existing MVP. **Golden rule: addit
 - Tenant Admin Branding page adds a **Custom Domain** input (lowercase, trimmed) with a CNAME hint.
 - 9/9 new pytest cases (`tests/test_phase2_subdomain.py`) green. Full backend regression: 120 passed (3 pre-existing failures in `test_fieldcrm.py` are stale demo-data assertions, unrelated to Phase 2).
 - No console errors on landing after Phase 2 changes.
-### ⏳ Phase 3 — Block C: S3 direct-upload presign + Block E: Privacy/T&C CRUD
-### ⏳ Phase 4 — Block D: Soft-delete guards + `token_rev` + reviewer bypass `9898989898/123456`
+### ✅ Phase 3 — Block C (S3 direct upload) + Block E (Legal CRUD) (Feb 8, 2026)
+
+**Block C — AWS S3 direct-upload presigning**
+- New `/app/backend/s3_presign.py`: env-driven S3 client factory + `presign_put()` producing a SigV4 PUT URL (no CORS preflight). Includes deterministic `build_key(tenant, user, module, filename)` scheme: `tenant/<tid>/<module>/<user>/<uuid>-<safe-name>`.
+- New endpoint `POST /api/uploads/presign` (auth-gated). Returns **503** with `"S3 uploads not configured on this environment"` when `AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION / AWS_S3_BUCKET` are absent — the rest of the app continues to work.
+- Env vars already documented in Phase 1 (`.env.example` + `documentation/environment-variables.md`).
+
+**Block E — Legal Documents CRUD + public `/legal/:kind`**
+- New `LegalDocument` model (`kind ∈ {privacy, terms, refund, shipping, about, contact}`, versioned, `is_published` flag). Additive: existing tenants have zero rows.
+- Endpoints:
+    - `GET /api/public/legal/{kind}?slug=<>` — resolves tenant by slug/header/host; returns latest published doc or 404 `{code: "legal_not_found"}`.
+    - `GET /api/admin/legal` + `GET /api/admin/legal/{kind}/latest` — tenant admin fetch.
+    - `POST /api/admin/legal` — creates a new version (optional `publish=true` demotes prior versions atomically).
+    - `POST /api/admin/legal/{id}/publish` and `DELETE /api/admin/legal/{id}`.
+- Frontend:
+    - Public route `/legal/:kind` and `/t/:slug/legal/:kind` — renders content_md with an App-Store-friendly empty-state fallback.
+    - New Tenant Admin page `/t/:slug/admin/legal` with per-kind tabs + Save Draft / Publish buttons; wired into the admin sidebar (**Legal Documents**).
+    - Customer/Dealer Account page now surfaces Privacy / Terms / Refund / Contact links.
+
+### ✅ Phase 4 — Block D: Soft-delete + session revocation + reviewer bypass (Feb 8, 2026)
+- `User` model gained `deleted_at` and `token_revoked_after` (additive, nullable).
+- New async `_session_validator` registered on startup via `auth.set_session_validator()`. Every Bearer request checks the user's status: rejects when user is deleted, disabled, or the JWT `iat < token_revoked_after`.
+- New endpoint `POST /api/auth/me/delete` — strict guards:
+    - **outstanding_balance** (`> 0`) → 409 `{code: "outstanding_balance", outstanding_amount}`.
+    - **active_orders** (any order in draft/submitted/approved/packed/dispatched) → 409 `{code: "active_orders"}`.
+    - **Reviewer bypass**: phone `9898989898` cannot self-delete (App Store re-audits repeatedly). Super-admin also cannot.
+    - On success: `is_active=false`, `deleted_at=now`, `token_revoked_after=now` — all existing JWTs die on the next request.
+- New endpoint `POST /api/auth/logout-all` — self-service kill switch bumping `token_revoked_after`.
+- **Universal reviewer bypass** (App Store / Play Store):
+    - Phone `9898989898` + OTP `123456` logs in without a tenant slug and becomes a tenant_admin of the `demo` tenant.
+    - Reviewer user is auto-seeded on first login and auto-reactivated on subsequent audits.
+- Frontend: Customer/Dealer Account page adds a **Delete My Account** button (with confirm + error surfacing).
+
+**Testing (Phase 3 + 4)**
+- `tests/test_phase34_uploads_legal_delete.py`: **11/11 green** — presign 503, presign 401, legal kind validation, full publish cycle, missing-kind fallback, non-admin 403, reviewer bypass login, reviewer cannot delete, soft-delete blocked by outstanding balance, soft-delete succeeds & revokes session, logout-all revocation.
+- Full regression: **131 passed**. 3 pre-existing `test_fieldcrm.py` failures unrelated (stale demo-tenant name).
+- Live smoke: `/t/demo/legal/privacy` renders the published Privacy Policy.
 ### ⏳ Phase 5 — Block B: FCM shards + Capacitor build script
 ### ⏳ Phase 6 — Block H: iOS safe-area CSS
 ### ⏳ Phase 7 — Docs + full regression via testing_agent_v3_fork
