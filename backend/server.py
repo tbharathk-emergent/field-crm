@@ -20,6 +20,7 @@ from models import (
     SalesEntry, CollectionEntry, DCR, Enquiry, Product, Order, OrderItem, Notification,
     FileRecord, PlatformSettings, now_iso, gen_id,
     AreaNode, Role, LeaveRequest, Target, PERMISSION_MODULES,
+    CustomField, CUSTOM_FIELD_MODULES, CUSTOM_FIELD_TYPES,
 )
 from auth import (
     make_token, decode_token, get_current_user, require_roles,
@@ -63,6 +64,7 @@ async def ensure_indexes():
     await db.targets.create_index([("tenant_id", 1), ("user_id", 1), ("month", 1)], unique=True)
     await db.attendance.create_index([("tenant_id", 1), ("user_id", 1), ("date", 1)], unique=True)
     await db.locations.create_index([("tenant_id", 1), ("user_id", 1), ("timestamp", 1)])
+    await db.custom_fields.create_index([("tenant_id", 1), ("module", 1), ("field_key", 1)], unique=True)
 
 
 @app.on_event("startup")
@@ -317,6 +319,7 @@ class TenantUpdateIn(BaseModel):
     is_active: Optional[bool] = None
     google_maps_api_key: Optional[str] = None
     order_approval_flow: Optional[str] = None
+    catalog_mode: Optional[str] = None
 
 
 @api.patch("/super/tenants/{tenant_id}")
@@ -449,6 +452,7 @@ class TenantBrandIn(BaseModel):
     logo_path: Optional[str] = None
     google_maps_api_key: Optional[str] = None
     order_approval_flow: Optional[str] = None
+    catalog_mode: Optional[str] = None
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     address: Optional[str] = None
@@ -487,6 +491,7 @@ class UserIn(BaseModel):
     outstanding_amount: float = 0
     farm_size_acres: Optional[float] = None
     crops: Optional[str] = None
+    custom_data: Dict[str, Any] = {}
 
 
 def _user_query(role_filter, tenant_id):
@@ -539,6 +544,32 @@ async def delete_user(user_id: str, user: dict = Depends(require_roles("tenant_a
     return {"ok": True}
 
 
+# Self profile update for customers/dealers (used by shop PWA self-signup)
+class SelfProfileIn(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    business_name: Optional[str] = None
+    address: Optional[str] = None
+    village: Optional[str] = None
+    district: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    gst_number: Optional[str] = None
+    farm_size_acres: Optional[float] = None
+    crops: Optional[str] = None
+    custom_data: Optional[Dict[str, Any]] = None
+
+
+@api.patch("/me/profile")
+async def update_my_profile(payload: SelfProfileIn, user: dict = Depends(get_current_user)):
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(400, "Nothing to update")
+    await db.users.update_one({"id": user["sub"]}, {"$set": updates})
+    u = await db.users.find_one({"id": user["sub"]})
+    return clean(u)
+
+
 # ---------------- Products ----------------
 class ProductIn(BaseModel):
     name: str
@@ -554,6 +585,7 @@ class ProductIn(BaseModel):
     stock: Optional[int] = None
     image_path: Optional[str] = None
     is_active: bool = True
+    custom_data: Dict[str, Any] = {}
 
 
 @api.get("/tenant/products")
@@ -714,6 +746,7 @@ class VisitIn(BaseModel):
     next_followup_date: Optional[str] = None
     photo_path: Optional[str] = None
     remarks: Optional[str] = None
+    custom_data: Dict[str, Any] = {}
 
 
 @api.post("/visits")
@@ -899,6 +932,7 @@ class EnquiryIn(BaseModel):
     photo_path: Optional[str] = None
     assigned_employee_id: Optional[str] = None
     source: str = "tenant"
+    custom_data: Dict[str, Any] = {}
 
 
 @api.post("/enquiries")
@@ -971,6 +1005,9 @@ class OrderIn(BaseModel):
 async def create_order(payload: OrderIn, user: dict = Depends(require_roles("customer", "dealer"))):
     if not payload.items:
         raise HTTPException(400, "Order must have items")
+    tenant = await db.tenants.find_one({"id": user["tid"]})
+    if (tenant or {}).get("catalog_mode") == "enquiry_only":
+        raise HTTPException(400, "This tenant only accepts enquiries — direct ordering is disabled. Please submit an enquiry instead.")
     cust = await db.users.find_one({"id": user["sub"]})
     if not cust:
         raise HTTPException(404, "Customer/Dealer not found")
@@ -985,7 +1022,6 @@ async def create_order(payload: OrderIn, user: dict = Depends(require_roles("cus
                          total=it.quantity * p.get("price", 0))
         total += line.total
         items.append(line)
-    tenant = await db.tenants.find_one({"id": user["tid"]})
     flow = (tenant or {}).get("order_approval_flow", "direct")
     initial_status = "submitted" if flow != "direct" else "approved"
     order = Order(tenant_id=user["tid"], customer_id=cust["id"],
@@ -1381,6 +1417,94 @@ async def update_role(rid: str, payload: RoleIn, user: dict = Depends(require_ro
 async def delete_role(rid: str, user: dict = Depends(require_roles("tenant_admin"))):
     await db.roles.update_one({"id": rid, "tenant_id": user["tid"]}, {"$set": {"is_active": False}})
     return {"ok": True}
+
+
+# ---------------- Custom Fields (per-tenant, per-module) ----------------
+class CustomFieldIn(BaseModel):
+    module: str
+    field_key: str
+    label: str
+    type: str
+    options: List[str] = []
+    required: bool = False
+    order: int = 0
+    placeholder: Optional[str] = None
+    help_text: Optional[str] = None
+    visible_to_customer: bool = True
+
+
+class CustomFieldPatchIn(BaseModel):
+    label: Optional[str] = None
+    type: Optional[str] = None
+    options: Optional[List[str]] = None
+    required: Optional[bool] = None
+    order: Optional[int] = None
+    placeholder: Optional[str] = None
+    help_text: Optional[str] = None
+    is_active: Optional[bool] = None
+    visible_to_customer: Optional[bool] = None
+
+
+@api.get("/custom-fields")
+async def list_custom_fields(module: Optional[str] = None,
+                              user: dict = Depends(get_current_user)):
+    """List custom fields for the caller's tenant. Anyone in tenant can read (needed to render forms)."""
+    if not user.get("tid"):
+        raise HTTPException(400, "Missing tenant")
+    q: Dict[str, Any] = {"tenant_id": user["tid"], "is_active": True}
+    if module:
+        q["module"] = module
+    docs = await db.custom_fields.find(q).sort([("module", 1), ("order", 1)]).to_list(500)
+    return [clean(d) for d in docs]
+
+
+@api.post("/custom-fields")
+async def create_custom_field(payload: CustomFieldIn,
+                               user: dict = Depends(require_roles("tenant_admin"))):
+    if payload.module not in CUSTOM_FIELD_MODULES:
+        raise HTTPException(400, f"Invalid module. Must be one of {CUSTOM_FIELD_MODULES}")
+    if payload.type not in CUSTOM_FIELD_TYPES:
+        raise HTTPException(400, f"Invalid type. Must be one of {CUSTOM_FIELD_TYPES}")
+    if payload.type in ("dropdown", "radio", "checkbox") and not payload.options:
+        raise HTTPException(400, f"{payload.type} field requires options")
+    key = payload.field_key.strip().lower().replace(" ", "_")
+    if not key or not key.replace("_", "").isalnum():
+        raise HTTPException(400, "field_key must be alphanumeric/underscore")
+    existing = await db.custom_fields.find_one({"tenant_id": user["tid"], "module": payload.module, "field_key": key})
+    if existing:
+        raise HTTPException(400, f"Field '{key}' already exists on {payload.module} module")
+    cf = CustomField(tenant_id=user["tid"], **{**payload.model_dump(), "field_key": key})
+    await db.custom_fields.insert_one(cf.model_dump())
+    return clean(cf.model_dump())
+
+
+@api.patch("/custom-fields/{cfid}")
+async def update_custom_field(cfid: str, payload: CustomFieldPatchIn,
+                               user: dict = Depends(require_roles("tenant_admin"))):
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(400, "Nothing to update")
+    if updates.get("type") and updates["type"] not in CUSTOM_FIELD_TYPES:
+        raise HTTPException(400, "Invalid type")
+    updates["updated_at"] = now_iso()
+    res = await db.custom_fields.update_one({"id": cfid, "tenant_id": user["tid"]}, {"$set": updates})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Custom field not found")
+    cf = await db.custom_fields.find_one({"id": cfid})
+    return clean(cf)
+
+
+@api.delete("/custom-fields/{cfid}")
+async def delete_custom_field(cfid: str,
+                               user: dict = Depends(require_roles("tenant_admin"))):
+    await db.custom_fields.update_one({"id": cfid, "tenant_id": user["tid"]},
+                                      {"$set": {"is_active": False, "updated_at": now_iso()}})
+    return {"ok": True}
+
+
+@api.get("/custom-fields/modules")
+async def custom_field_modules(user: dict = Depends(get_current_user)):
+    return {"modules": CUSTOM_FIELD_MODULES, "types": CUSTOM_FIELD_TYPES}
 
 
 @api.get("/my-permissions")

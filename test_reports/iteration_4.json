@@ -1,0 +1,45 @@
+{
+  "summary": "Phase 2.6 (Custom Fields + Catalog Mode + Self-Profile) validated end-to-end. 29/29 new backend pytest tests pass (test_phase26_customfields_catalog.py), 18/18 phase 3 regression tests still pass. Frontend flows: Custom Fields admin page (all 5 module tabs + Add dialog + 7 field types + options), dropdown field renders in Dealer Add modal under 'CUSTOM FIELDS' section, Branding page catalog-mode-select toggles enquiry_only, Customer PWA correctly hides prices/shows Enquire buttons (5 products) in enquiry_only mode, submits enquiry on click, and reverts to Add-to-Cart with ₹prices in direct mode. Customer /shop/account save-profile-btn works.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/custom-fields", "issue": "Duplicate-key check does not filter by is_active — a soft-deleted field with the same field_key still blocks re-creation with 400. Consider adding `\"is_active\": True` to the existence lookup (server.py:1473) so admins can re-add a previously deleted field with the same key."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CustomFieldsForm options input", "issue": "No data-testid on the per-option text input inside the Add Custom Field dialog (label uses '+ Add option' button). Selector by placeholder works but adding e.g. data-testid='cf-option-{idx}' would improve testability.", "selector": "input[placeholder*='Option']", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Live catalog_mode toggle for an already-logged-in customer", "issue": "When tenant admin changes catalog_mode (direct <-> enquiry_only), a currently-open customer session does not pick up the new mode on soft reload — AppContext appears to cache tenant profile at mount and doesn't refetch on route reload. A hard new session/login shows correct mode. Consider re-fetching /api/tenant/profile on Catalogue mount or exposing a refreshTenant() call.", "affected_selectors": ["[data-testid^='enquire-']", "button:has-text('Add to Cart')"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase26_customfields_catalog.py",
+    "/app/backend/tests/test_phase3_split.py",
+    "/app/test_reports/pytest/phase26_results.xml"
+  ],
+  "action_items": [
+    "(LOW) Fix duplicate-key check on POST /api/custom-fields to ignore soft-deleted (is_active=false) fields (server.py line ~1473).",
+    "(LOW) Refresh tenant profile on Customer Catalogue/Cart mount so catalog_mode toggles by admin propagate to already-open customer sessions (or expose refreshTenant() from AppContext).",
+    "(LOW) Add data-testid to per-option input inside CustomFieldsForm.jsx (cf-option-{idx})."
+  ],
+  "critical_code_review_comments": [
+    "backend/server.py is ~1928 lines — still growing; consider splitting into routers/ (auth, users, custom_fields, orders, tenant, analytics) before next phase for maintainability.",
+    "GET /api/custom-fields is called by every 5 forms (dealer/customer/product/visit/enquiry) with no client-side caching — consider a single AppContext.customFields state loaded once per session, or use SWR/react-query for auto-dedup.",
+    "PATCH /api/me/profile accepts arbitrary custom_data dict for the logged-in user with no validation against defined CustomField schema (e.g., required visible_to_customer fields aren't enforced server-side). Consider validating custom_data keys against CustomField definitions where visible_to_customer=true and required=true.",
+    "OrderIn.items should validate quantity > 0 (currently allows 0/negative quantities which would create zero-total orders).",
+    "Custom field field_key normalization (`.strip().lower().replace(' ','_')`) is done only on POST, not on PATCH — if PATCH ever accepts field_key changes, key drift could occur (though PATCH schema currently excludes field_key, this is safe today)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase26_customfields_catalog.py (new — 29 pytest tests covering /custom-fields CRUD + modules meta + permissions + custom_data persistence on user/product/visit/enquiry + catalog_mode + /me/profile)"
+  ],
+  "success_rate": {"backend": "100% (29/29 new + 18/18 regression)", "frontend": "100% on all requested flows"},
+  "test_credentials": "From /app/memory/test_credentials.md — TA 9000000001, Emp 9000000003, Dealer 9000000004 (role_hint=dealer), Customer 9000000007 (role_hint=customer); OTP 123456; slug=demo.",
+  "seed_data_creation": "Tests create RUN-suffixed custom fields (e.g., license_number_ab12cd), TEST_Dealer_CD user, TEST_Prod_CD product and clean up in fixtures. UI test cleanup deletes all created custom fields and resets catalog_mode=direct.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend supports: 5 modules (dealer/customer/product/enquiry/visit), 7 field types (text/textarea/number/date/dropdown/radio/checkbox). Custom fields are per-tenant, per-module, and rendered on ALL create/edit forms plus the customer /shop/account page. Catalog mode 'enquiry_only' blocks POST /api/orders with 400 for both dealer & customer, and the Customer PWA replaces Add-to-Cart with Enquire buttons (data-testid='enquire-{pid}'). /api/me/profile PATCH is the self-edit endpoint. Note: catalog_mode toggle is NOT live for already-open customer sessions — reload/re-login required. Duplicate check on POST /api/custom-fields includes soft-deleted rows.",
+  "rca of the issue": "N/A — no blocking bugs. Minor items noted above."
+}

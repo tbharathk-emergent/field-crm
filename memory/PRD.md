@@ -44,6 +44,20 @@ Multi-tenant SaaS Field Force Management platform (FieldCRM / localappstore.in) 
   - New permission module `customers`; sales role gets read+write to both `dealers` and `customers` by default.
   - Login screen now has 3 tabs: Staff | Dealer | Customer.
 
+### Phase 2.6 — Custom Fields + Catalog Mode (Feb 2026)
+- **Custom Fields** — tenant admin can define custom fields per module (`dealer`, `customer`, `product`, `enquiry`, `visit`).
+  - Field types: text, textarea, number, date, dropdown, radio, checkbox (multi-select).
+  - Configurable: label, key, options, required, order, placeholder, help_text, visible_to_customer.
+  - Managed at `/t/:slug/admin/custom-fields` (module tabs + CRUD table + dialog).
+  - Values stored in `custom_data` dict on each record. `<CustomFieldsForm module="..."/>` component auto-renders inputs everywhere.
+  - Wired into: TenantAdmin & Employee Dealer/Customer/Product/Enquiry/Visit forms, Customer PWA account page (self-signup fields), Enquiry inline "New Customer" modal.
+- **Catalog Mode** — new `tenant.catalog_mode`: `direct` (default: show prices + cart) or `enquiry_only` (hide prices, buttons become "Enquire").
+  - Toggle in Branding page.
+  - Customer PWA `/shop/catalogue`: shows "Enquire" button per product, submits an enquiry on click.
+  - Customer PWA `/shop/cart`: submits a bulk enquiry summarizing all items+qty in enquiry mode.
+  - Backend enforces: `POST /api/orders` returns 400 if tenant `catalog_mode==enquiry_only`.
+- **Self-profile** endpoint `PATCH /api/me/profile` — dealers/customers can edit their own profile (including custom_data) from the shop PWA account page.
+
 ### Phase 2 (Feb 2026)
 - **Area Hierarchy** (Country → State → District → Area) — `/api/areas` CRUD, tree UI at `/t/:slug/admin/areas`. 8 nodes seeded for demo tenant (India / Telangana+AP / Hyderabad+Warangal+Karimnagar / Hyderabad N+S).
 - **Custom Roles & Permissions** — `/api/roles`, `/api/permission-modules`, `/api/my-permissions`. UI at `/t/:slug/admin/roles` with module×{read,write} matrix; 2 default roles seeded (Sales Executive, Read-Only Observer). Employees PWA cards gate visibility via `can()`.

@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, Store, Package, ShoppingBag, MessageSquare, BarChart3,
   Palette, Megaphone, MapPin, Globe, Shield, Target as TargetIcon, CalendarDays,
   Menu, LogOut, Building2, Tag, Settings,
-  FileText, ShoppingCart, Wallet, ClipboardList, Sprout,
+  FileText, ShoppingCart, Wallet, ClipboardList, Sprout, SlidersHorizontal,
 } from "lucide-react";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import OfflineIndicator from "@/components/OfflineIndicator";
@@ -60,6 +60,7 @@ function buildNav(role, slug, tenant) {
       { to: `/t/${slug}/admin/branding`, icon: Palette, label: "Branding", perm: "branding" },
       { to: `/t/${slug}/admin/areas`, icon: Globe, label: "Areas", perm: "areas" },
       { to: `/t/${slug}/admin/roles`, icon: Shield, label: "Roles & Permissions", perm: "roles" },
+      { to: `/t/${slug}/admin/custom-fields`, icon: SlidersHorizontal, label: "Custom Fields", perm: "branding" },
       { to: `/t/${slug}/admin/products`, icon: Package, label: getLabel(tenant, "product_plural", "Products"), perm: "products" },
       { to: `/t/${slug}/admin/targets`, icon: TargetIcon, label: "Sales Targets", perm: "targets" },
       { to: `/t/${slug}/admin/leaves`, icon: CalendarDays, label: "Leaves", perm: "leaves" },

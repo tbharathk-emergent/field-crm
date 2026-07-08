@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useApp, getLabel } from "@/context/AppContext";
 import { postOrQueue } from "@/lib/offline";
+import CustomFieldsForm from "@/components/CustomFieldsForm";
 
 export default function Visit() {
   const { user, tenant, t } = useApp();
@@ -20,6 +21,7 @@ export default function Visit() {
     visit_date: new Date().toISOString().slice(0, 10),
     notes: "", orders_discussion: "", collection_discussion: "",
     next_followup_date: "", remarks: "",
+    custom_data: {},
   });
 
   const load = async () => {
@@ -130,6 +132,11 @@ export default function Visit() {
         <div><Label>Meeting Notes</Label><Textarea data-testid="visit-notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} /></div>
         <div><Label>Orders Discussion</Label><Textarea value={form.orders_discussion} onChange={(e) => setForm({ ...form, orders_discussion: e.target.value })} rows={2} /></div>
         <div><Label>Next Follow-up</Label><Input type="date" value={form.next_followup_date} onChange={(e) => setForm({ ...form, next_followup_date: e.target.value })} /></div>
+        <div className="pt-2 border-t border-brand-line">
+          <div className="text-xs text-brand-mute mb-2 uppercase tracking-wider">Custom Fields</div>
+          <CustomFieldsForm module="visit" data={form.custom_data || {}}
+                            onChange={(cd) => setForm({ ...form, custom_data: cd })} />
+        </div>
         <button data-testid="visit-submit" onClick={submit} className="btn-primary w-full">Submit Visit</button>
       </div>
 

@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useApp, getLabel } from "@/context/AppContext";
 import { postOrQueue } from "@/lib/offline";
+import CustomFieldsForm from "@/components/CustomFieldsForm";
 
 export default function Enquiry() {
   const { user, tenant, t, can } = useApp();
@@ -17,11 +18,11 @@ export default function Enquiry() {
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [form, setForm] = useState({
     customer_id: "", customer_name: "", mobile: "", village: "", district: "",
-    category: "", description: "",
+    category: "", description: "", custom_data: {},
   });
   const [newCustOpen, setNewCustOpen] = useState(false);
   const [newCust, setNewCust] = useState({
-    phone: "", name: "", village: "", district: "", farm_size_acres: 0, crops: "",
+    phone: "", name: "", village: "", district: "", farm_size_acres: 0, crops: "", custom_data: {},
   });
 
   const load = async () => {
@@ -76,7 +77,7 @@ export default function Enquiry() {
         district: res.data.district || "",
       }));
       setNewCustOpen(false);
-      setNewCust({ phone: "", name: "", village: "", district: "", farm_size_acres: 0, crops: "" });
+      setNewCust({ phone: "", name: "", village: "", district: "", farm_size_acres: 0, crops: "", custom_data: {} });
     } catch (e) { toast.error(e?.response?.data?.detail || "Failed"); }
   };
 
@@ -85,7 +86,7 @@ export default function Enquiry() {
     try {
       const res = await postOrQueue(api, "/enquiries", form, "enquiry");
       toast.success(res.offline ? "Saved offline — will sync" : "Enquiry created");
-      setForm({ customer_id: "", customer_name: "", mobile: "", village: "", district: "", category: "", description: "" });
+      setForm({ customer_id: "", customer_name: "", mobile: "", village: "", district: "", category: "", description: "", custom_data: {} });
       setSelectedCustomerId("");
       load();
     } catch { toast.error("Failed"); }
@@ -136,6 +137,11 @@ export default function Enquiry() {
           <div><Label>Category</Label><Input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Crop / Issue" /></div>
         </div>
         <div><Label>Description</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} /></div>
+        <div className="pt-2 border-t border-brand-line">
+          <div className="text-xs text-brand-mute mb-2 uppercase tracking-wider">Custom Fields</div>
+          <CustomFieldsForm module="enquiry" data={form.custom_data || {}}
+                            onChange={(cd) => setForm({ ...form, custom_data: cd })} />
+        </div>
         <button data-testid="enq-submit" onClick={submit} className="btn-primary w-full">Submit</button>
       </div>
 
@@ -167,6 +173,11 @@ export default function Enquiry() {
             <div className="grid grid-cols-2 gap-2">
               <div><Label>Farm (acres)</Label><Input type="number" step="0.1" value={newCust.farm_size_acres} onChange={(e) => setNewCust({ ...newCust, farm_size_acres: +e.target.value })} /></div>
               <div><Label>Crops</Label><Input value={newCust.crops} onChange={(e) => setNewCust({ ...newCust, crops: e.target.value })} placeholder="Cotton, Paddy" /></div>
+            </div>
+            <div className="pt-2 border-t border-brand-line">
+              <div className="text-xs text-brand-mute mb-2 uppercase tracking-wider">Custom Fields</div>
+              <CustomFieldsForm module="customer" data={newCust.custom_data || {}}
+                                onChange={(cd) => setNewCust({ ...newCust, custom_data: cd })} compact />
             </div>
           </div>
           <DialogFooter>

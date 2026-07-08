@@ -33,6 +33,7 @@ import AdminAreas from "@/pages/TenantAdmin/Areas";
 import AdminRoles from "@/pages/TenantAdmin/Roles";
 import AdminTargets from "@/pages/TenantAdmin/Targets";
 import AdminLeaves from "@/pages/TenantAdmin/Leaves";
+import AdminCustomFields from "@/pages/TenantAdmin/CustomFields";
 
 // Manager
 import ManagerDashboard from "@/pages/Manager/Dashboard";
@@ -107,6 +108,7 @@ function App() {
             <Route path="roles" element={<AdminRoles />} />
             <Route path="targets" element={<AdminTargets />} />
             <Route path="leaves" element={<AdminLeaves />} />
+            <Route path="custom-fields" element={<AdminCustomFields />} />
           </Route>
 
           {/* Manager */}

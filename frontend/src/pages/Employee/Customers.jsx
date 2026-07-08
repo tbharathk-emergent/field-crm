@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useApp, getLabel } from "@/context/AppContext";
+import CustomFieldsForm from "@/components/CustomFieldsForm";
 
 export default function Customers() {
   const { user, tenant, t, can } = useApp();
@@ -102,6 +103,11 @@ export default function Customers() {
               <div><Label>Crops</Label><Input value={form.crops || ""} onChange={(e) => setForm({ ...form, crops: e.target.value })} placeholder="Cotton, Paddy" /></div>
             </div>
             <div><Label>Address</Label><Input value={form.address || ""} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
+            <div className="pt-2 border-t border-brand-line">
+              <div className="text-xs text-brand-mute mb-2 uppercase tracking-wider">Custom Fields</div>
+              <CustomFieldsForm module="customer" data={form.custom_data || {}}
+                                onChange={(cd) => setForm({ ...form, custom_data: cd })} />
+            </div>
           </div>
           <DialogFooter>
             <button onClick={() => setOpen(false)} className="px-4 py-2 rounded-lg border border-brand-line">Cancel</button>

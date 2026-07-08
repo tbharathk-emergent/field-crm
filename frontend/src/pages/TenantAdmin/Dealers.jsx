@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useApp, getLabel } from "@/context/AppContext";
+import CustomFieldsForm from "@/components/CustomFieldsForm";
 
 export default function Dealers() {
   const { tenant, t } = useApp();
@@ -149,6 +150,11 @@ export default function Dealers() {
             </div>
             <div><Label>Credit Limit</Label><Input type="number" value={form.credit_limit || 0} onChange={(e) => setForm({ ...form, credit_limit: +e.target.value })} /></div>
             <div><Label>Outstanding</Label><Input type="number" value={form.outstanding_amount || 0} onChange={(e) => setForm({ ...form, outstanding_amount: +e.target.value })} /></div>
+          </div>
+          <div className="pt-2 border-t border-brand-line">
+            <div className="text-xs text-brand-mute mb-2 uppercase tracking-wider">Custom Fields</div>
+            <CustomFieldsForm module="dealer" data={form.custom_data || {}}
+                              onChange={(cd) => setForm({ ...form, custom_data: cd })} />
           </div>
           <DialogFooter>
             <button onClick={() => setOpen(false)} className="px-4 py-2 rounded-lg border border-brand-line">Cancel</button>

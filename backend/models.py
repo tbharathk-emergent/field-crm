@@ -70,6 +70,7 @@ class Tenant(BaseModel):
     is_active: bool = True
     google_maps_api_key: Optional[str] = None  # tenant-level placeholder
     order_approval_flow: str = "direct"  # direct | sales_exec | manager | admin
+    catalog_mode: str = "direct"  # direct (show prices, cart+checkout) | enquiry_only (hide prices, enquiry flow)
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     address: Optional[str] = None
@@ -114,6 +115,8 @@ class User(BaseModel):
     # farmer-specific (role="customer")
     farm_size_acres: Optional[float] = None
     crops: Optional[str] = None  # comma-separated
+    # Custom fields (tenant-defined) → {field_key: value}
+    custom_data: Dict[str, Any] = {}
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -184,6 +187,7 @@ class Visit(BaseModel):
     next_followup_date: Optional[str] = None
     photo_path: Optional[str] = None
     remarks: Optional[str] = None
+    custom_data: Dict[str, Any] = {}
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -256,6 +260,7 @@ class Enquiry(BaseModel):
     followup_notes: Optional[str] = None
     source: str = "tenant"  # tenant | customer
     created_by: Optional[str] = None
+    custom_data: Dict[str, Any] = {}
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -277,6 +282,7 @@ class Product(BaseModel):
     stock: Optional[int] = None
     image_path: Optional[str] = None
     is_active: bool = True
+    custom_data: Dict[str, Any] = {}
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -423,5 +429,31 @@ class Target(BaseModel):
     month: str  # YYYY-MM
     sales_target: float = 0.0
     set_by: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+
+# ---------- Custom Fields (Tenant-defined, per-module) ----------
+CUSTOM_FIELD_MODULES = ["dealer", "customer", "product", "enquiry", "visit"]
+CUSTOM_FIELD_TYPES = ["text", "number", "textarea", "dropdown", "radio", "checkbox", "date"]
+
+
+class CustomField(BaseModel):
+    """Tenant-defined custom field attached to a module (dealer/customer/product/enquiry/visit).
+    Values are stored on the target record in the `custom_data` dict keyed by `field_key`."""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    tenant_id: str
+    module: str  # dealer | customer | product | enquiry | visit
+    field_key: str  # snake_case unique per (tenant, module)
+    label: str
+    type: str  # text | number | textarea | dropdown | radio | checkbox | date
+    options: List[str] = []  # for dropdown | radio | checkbox
+    required: bool = False
+    order: int = 0
+    placeholder: Optional[str] = None
+    help_text: Optional[str] = None
+    is_active: bool = True
+    visible_to_customer: bool = True  # if False, customer PWA self-signup hides it
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)

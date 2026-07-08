@@ -22,6 +22,7 @@ export default function Branding() {
     default_language: tenant?.default_language || "en",
     google_maps_api_key: tenant?.google_maps_api_key || "",
     order_approval_flow: tenant?.order_approval_flow || "direct",
+    catalog_mode: tenant?.catalog_mode || "direct",
     theme: {
       primary: tenant?.theme?.primary || "#2C5E43",
       secondary: tenant?.theme?.secondary || "#D35400",
@@ -184,6 +185,19 @@ export default function Branding() {
                     <SelectItem value="admin">Tenant Admin approves</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div>
+                <Label>Catalog Mode</Label>
+                <Select value={form.catalog_mode} onValueChange={(v) => setForm({ ...form, catalog_mode: v })}>
+                  <SelectTrigger data-testid="catalog-mode-select"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="direct">Direct Purchase (show prices + cart)</SelectItem>
+                    <SelectItem value="enquiry_only">Enquiry Only (hide prices, get enquiries)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="text-[11px] text-brand-mute mt-1">
+                  In enquiry-only mode, product prices are hidden and customers submit enquiries instead of placing orders.
+                </div>
               </div>
               <div className="sm:col-span-2">
                 <Label>Google Maps API Key (optional)</Label>

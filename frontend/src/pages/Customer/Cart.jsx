@@ -1,19 +1,20 @@
 import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { Trash2, Plus, Minus, ShoppingBag } from "lucide-react";
+import { Trash2, Plus, Minus, ShoppingBag, MessageSquare } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useApp } from "@/context/AppContext";
 
 const CART_KEY = "fc_cart";
 
 export default function Cart() {
-  const { t } = useApp();
+  const { tenant, user, t } = useApp();
   const navigate = useNavigate();
   const { slug } = useParams();
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const enquiryOnly = tenant?.catalog_mode === "enquiry_only";
 
   useEffect(() => {
     setCart(JSON.parse(localStorage.getItem(CART_KEY) || "{}"));
@@ -38,12 +39,30 @@ export default function Cart() {
     if (items.length === 0) return toast.error("Cart empty");
     setSubmitting(true);
     try {
-      await api.post("/orders", {
-        items: items.map(i => ({ product_id: i.id, quantity: i.qty })),
-      });
-      toast.success("Order placed!");
-      update({});
-      navigate(`/t/${slug}/shop/orders`);
+      if (enquiryOnly) {
+        // Convert cart into a bulk enquiry
+        const summary = items.map(i => `${i.product.name} × ${i.qty}${i.product.packing ? ` (${i.product.packing})` : ""}`).join("\n");
+        await api.post("/enquiries", {
+          customer_id: user?.id,
+          customer_name: user?.name || "Customer",
+          mobile: user?.phone,
+          village: user?.village,
+          district: user?.district,
+          category: "Bulk Enquiry",
+          description: `Enquiry for the following products:\n${summary}`,
+          source: "customer",
+        });
+        toast.success("Enquiry submitted!");
+        update({});
+        navigate(`/t/${slug}/shop/orders`);
+      } else {
+        await api.post("/orders", {
+          items: items.map(i => ({ product_id: i.id, quantity: i.qty })),
+        });
+        toast.success("Order placed!");
+        update({});
+        navigate(`/t/${slug}/shop/orders`);
+      }
     } catch (e) { toast.error(e?.response?.data?.detail || "Failed"); }
     finally { setSubmitting(false); }
   };
@@ -63,7 +82,9 @@ export default function Cart() {
               <div className="flex items-center justify-between">
                 <div className="flex-1 min-w-0">
                   <div className="font-medium text-sm truncate">{product.name}</div>
-                  <div className="text-xs text-brand-mute">₹{product.price} × {qty}</div>
+                  <div className="text-xs text-brand-mute">
+                    {enquiryOnly ? `${qty} unit${qty === 1 ? "" : "s"}` : `₹${product.price} × ${qty}`}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => setQty(id, qty - 1)} className="w-7 h-7 rounded-lg border border-brand-line flex items-center justify-center"><Minus size={12} /></button>
@@ -72,16 +93,23 @@ export default function Cart() {
                   <button onClick={() => setQty(id, 0)} className="ml-2 text-brand-error"><Trash2 size={14} /></button>
                 </div>
               </div>
-              <div className="mt-1 text-right font-mono text-sm font-semibold">₹{Math.round(qty * product.price)}</div>
+              {!enquiryOnly && <div className="mt-1 text-right font-mono text-sm font-semibold">₹{Math.round(qty * product.price)}</div>}
             </div>
           ))}
           <div className="card-surface p-4 sticky bottom-20">
-            <div className="flex justify-between mb-3">
-              <span className="text-brand-mute">{t("total")}</span>
-              <span className="font-display text-2xl font-bold">₹{total.toLocaleString("en-IN")}</span>
-            </div>
-            <button data-testid="place-order-btn" onClick={place} disabled={submitting} className="btn-primary w-full h-12">
-              {submitting ? "..." : t("place_order")}
+            {enquiryOnly ? (
+              <div className="mb-3 text-xs text-brand-secondary bg-brand-secondary/10 rounded-lg px-3 py-2">
+                Prices are not shown. Submit an enquiry and our team will contact you.
+              </div>
+            ) : (
+              <div className="flex justify-between mb-3">
+                <span className="text-brand-mute">{t("total")}</span>
+                <span className="font-display text-2xl font-bold">₹{total.toLocaleString("en-IN")}</span>
+              </div>
+            )}
+            <button data-testid="place-order-btn" onClick={place} disabled={submitting} className="btn-primary w-full h-12 inline-flex items-center justify-center gap-2">
+              {enquiryOnly && <MessageSquare size={16} />}
+              {submitting ? "..." : enquiryOnly ? "Send Enquiry" : t("place_order")}
             </button>
           </div>
         </>

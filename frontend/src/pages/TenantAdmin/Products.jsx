@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useApp, getLabel } from "@/context/AppContext";
+import CustomFieldsForm from "@/components/CustomFieldsForm";
 
 export default function Products() {
   const { tenant, t } = useApp();
@@ -117,6 +118,11 @@ export default function Products() {
             <div><Label>MRP</Label><Input type="number" value={form.mrp || 0} onChange={(e) => setForm({ ...form, mrp: +e.target.value })} /></div>
             <div><Label>Price</Label><Input data-testid="product-price" type="number" value={form.price || 0} onChange={(e) => setForm({ ...form, price: +e.target.value })} /></div>
             <div className="sm:col-span-2"><Label>Description</Label><Textarea value={form.description || ""} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
+          </div>
+          <div className="pt-2 border-t border-brand-line">
+            <div className="text-xs text-brand-mute mb-2 uppercase tracking-wider">Custom Fields</div>
+            <CustomFieldsForm module="product" data={form.custom_data || {}}
+                              onChange={(cd) => setForm({ ...form, custom_data: cd })} />
           </div>
           <DialogFooter>
             <button onClick={() => setOpen(false)} className="px-4 py-2 rounded-lg border border-brand-line">Cancel</button>

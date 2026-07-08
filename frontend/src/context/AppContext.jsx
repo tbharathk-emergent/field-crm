@@ -98,10 +98,20 @@ export function AppProvider({ children }) {
     } catch {}
   }, []);
 
+  const refreshMe = useCallback(async () => {
+    try {
+      const res = await api.get("/auth/me");
+      if (res.data.user) {
+        setUser(res.data.user);
+        localStorage.setItem("fc_user", JSON.stringify(res.data.user));
+      }
+    } catch {}
+  }, []);
+
   return (
     <AppContext.Provider value={{
       token, user, tenant, lang, setLang, t, permissions, can,
-      loginSuccess, logout, loadPublicTenant, refreshTenant, applyTenantTheme,
+      loginSuccess, logout, loadPublicTenant, refreshTenant, applyTenantTheme, refreshMe,
     }}>
       {children}
     </AppContext.Provider>
