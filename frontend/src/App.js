@@ -6,6 +6,7 @@ import { AppProvider } from "@/context/AppContext";
 import { RequireAuth, TenantScope } from "@/components/Guards";
 import AdminShell from "@/components/Layout/AdminShell";
 import MobileShell from "@/components/Layout/MobileShell";
+import MobileAdminShell from "@/components/Layout/MobileAdminShell";
 
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
@@ -85,7 +86,7 @@ function App() {
             element={
               <TenantScope>
                 <RequireAuth roles={["tenant_admin"]}>
-                  <AdminShell role="tenant_admin" />
+                  <MobileAdminShell role="tenant_admin" />
                 </RequireAuth>
               </TenantScope>
             }
@@ -111,7 +112,7 @@ function App() {
             element={
               <TenantScope>
                 <RequireAuth roles={["manager"]}>
-                  <AdminShell role="manager" />
+                  <MobileAdminShell role="manager" />
                 </RequireAuth>
               </TenantScope>
             }
