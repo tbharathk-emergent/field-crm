@@ -1,19 +1,78 @@
 import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { Plus, UserPlus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useApp, getLabel } from "@/context/AppContext";
 import { postOrQueue } from "@/lib/offline";
 
 export default function Enquiry() {
-  const { tenant, t } = useApp();
+  const { user, tenant, t, can } = useApp();
   const [list, setList] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [form, setForm] = useState({ customer_name: "", mobile: "", village: "", district: "", category: "", description: "" });
+  const [newCustOpen, setNewCustOpen] = useState(false);
+  const [newCust, setNewCust] = useState({ phone: "", name: "", village: "", district: "", business_name: "" });
 
-  const load = () => api.get("/enquiries").then(r => setList(r.data));
-  useEffect(() => { load(); }, []);
+  const load = async () => {
+    const params = { role: "customer" };
+    if (user?.role === "employee") params.assigned_employee_id = user.id;
+    const [e, c] = await Promise.all([
+      api.get("/enquiries"),
+      api.get("/tenant/users", { params }),
+    ]);
+    setList(e.data);
+    setCustomers(c.data);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [user]);
+
+  // When an existing customer is picked, auto-fill enquiry form fields.
+  const pickCustomer = (id) => {
+    setSelectedCustomerId(id);
+    const c = customers.find(x => x.id === id);
+    if (c) {
+      setForm(f => ({
+        ...f,
+        customer_name: c.name || "",
+        mobile: c.phone || "",
+        village: c.village || "",
+        district: c.district || "",
+      }));
+    }
+  };
+
+  const createInlineCustomer = async () => {
+    if (!newCust.phone || !newCust.name) return toast.error("Phone & name required");
+    if (!can("dealers", "write")) return toast.error("You don't have permission to create customers");
+    try {
+      const payload = {
+        ...newCust, role: "customer",
+        assigned_employee_id: user?.role === "employee" ? user.id : "",
+      };
+      const res = await api.post("/tenant/users", payload);
+      toast.success("Customer created");
+      // Refresh list and auto-select
+      const params = { role: "customer" };
+      if (user?.role === "employee") params.assigned_employee_id = user.id;
+      const c = await api.get("/tenant/users", { params });
+      setCustomers(c.data);
+      setSelectedCustomerId(res.data.id);
+      setForm(f => ({
+        ...f,
+        customer_name: res.data.name,
+        mobile: res.data.phone,
+        village: res.data.village || "",
+        district: res.data.district || "",
+      }));
+      setNewCustOpen(false);
+      setNewCust({ phone: "", name: "", village: "", district: "", business_name: "" });
+    } catch (e) { toast.error(e?.response?.data?.detail || "Failed"); }
+  };
 
   const submit = async () => {
     if (!form.customer_name) return toast.error("Name required");
@@ -21,17 +80,47 @@ export default function Enquiry() {
       const res = await postOrQueue(api, "/enquiries", form, "enquiry");
       toast.success(res.offline ? "Saved offline — will sync" : "Enquiry created");
       setForm({ customer_name: "", mobile: "", village: "", district: "", category: "", description: "" });
+      setSelectedCustomerId("");
       load();
     } catch { toast.error("Failed"); }
   };
 
   const label = getLabel(tenant, "customer", "Customer");
+  const canCreateCust = can("dealers", "write");
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 pb-4">
       <h1 className="font-display text-xl font-bold">{label} Enquiry</h1>
+
       <div className="card-surface p-4 space-y-3">
-        <div><Label>{label} Name *</Label><Input data-testid="enq-name" value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} /></div>
+        <div>
+          <Label>Select existing {label.toLowerCase()} or leave blank for walk-in</Label>
+          <div className="flex gap-2">
+            <Select value={selectedCustomerId} onValueChange={pickCustomer}>
+              <SelectTrigger data-testid="enq-select-customer" className="flex-1">
+                <SelectValue placeholder={`— New / Walk-in ${label} —`} />
+              </SelectTrigger>
+              <SelectContent>
+                {customers.map(c => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name} · {c.phone}{c.village ? ` · ${c.village}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {canCreateCust && (
+              <button data-testid="enq-new-customer-btn" onClick={() => setNewCustOpen(true)}
+                      className="inline-flex items-center gap-1 px-3 rounded-lg border border-brand-primary text-brand-primary text-sm">
+                <UserPlus size={14} /> New
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <Label>{label} Name *</Label>
+          <Input data-testid="enq-name" value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} />
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <div><Label>Mobile</Label><Input value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} /></div>
           <div><Label>Village</Label><Input value={form.village} onChange={(e) => setForm({ ...form, village: e.target.value })} /></div>
@@ -46,7 +135,7 @@ export default function Enquiry() {
 
       <h2 className="font-display text-base font-semibold mt-4">My Enquiries</h2>
       <div className="space-y-2">
-        {list.slice(0, 10).map(e => (
+        {list.slice(0, 20).map(e => (
           <div key={e.id} className="card-surface p-3">
             <div className="flex items-center justify-between">
               <div className="font-medium">{e.customer_name}</div>
@@ -57,6 +146,26 @@ export default function Enquiry() {
           </div>
         ))}
       </div>
+
+      {/* Inline create customer modal */}
+      <Dialog open={newCustOpen} onOpenChange={setNewCustOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Create New {label}</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-3">
+            <div><Label>Phone *</Label><Input data-testid="new-cust-phone" value={newCust.phone} onChange={(e) => setNewCust({ ...newCust, phone: e.target.value })} /></div>
+            <div><Label>Name *</Label><Input data-testid="new-cust-name" value={newCust.name} onChange={(e) => setNewCust({ ...newCust, name: e.target.value })} /></div>
+            <div><Label>Business Name</Label><Input value={newCust.business_name} onChange={(e) => setNewCust({ ...newCust, business_name: e.target.value })} /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label>Village</Label><Input value={newCust.village} onChange={(e) => setNewCust({ ...newCust, village: e.target.value })} /></div>
+              <div><Label>District</Label><Input value={newCust.district} onChange={(e) => setNewCust({ ...newCust, district: e.target.value })} /></div>
+            </div>
+          </div>
+          <DialogFooter>
+            <button onClick={() => setNewCustOpen(false)} className="px-4 py-2 rounded-lg border border-brand-line">Cancel</button>
+            <button data-testid="save-new-cust-btn" onClick={createInlineCustomer} className="btn-primary">Create</button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

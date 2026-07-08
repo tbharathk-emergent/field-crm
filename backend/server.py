@@ -1371,12 +1371,17 @@ async def my_permissions(user: dict = Depends(get_current_user)):
         return {"permissions": {m: {"read": True, "write": True} for m in PERMISSION_MODULES}}
     udoc = await db.users.find_one({"id": user["sub"]})
     if user["role"] == "manager":
-        # managers get read on most modules, write on their own activity
-        base = {m: {"read": True, "write": True} for m in PERMISSION_MODULES}
-        base["roles"] = {"read": False, "write": False}
-        base["branding"] = {"read": False, "write": False}
-        base["areas"] = {"read": True, "write": False}
-        return {"permissions": base}
+        # managers default: read+write on all except roles/branding (admin-only)
+        default = {m: {"read": True, "write": True} for m in PERMISSION_MODULES}
+        default["roles"] = {"read": False, "write": False}
+        default["branding"] = {"read": False, "write": False}
+        # Overlay custom role (so a manager can be restricted just like an employee)
+        if udoc and udoc.get("role_id"):
+            role = await db.roles.find_one({"id": udoc["role_id"]})
+            if role and role.get("permissions"):
+                for k, v in role["permissions"].items():
+                    default[k] = v
+        return {"permissions": default}
     if user["role"] == "employee":
         # default: write on field entries, read on others
         default = {m: {"read": False, "write": False} for m in PERMISSION_MODULES}

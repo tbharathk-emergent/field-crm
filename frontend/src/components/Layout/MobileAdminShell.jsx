@@ -4,6 +4,7 @@ import {
   LayoutDashboard, Users, Store, Package, ShoppingBag, MessageSquare, BarChart3,
   Palette, Megaphone, MapPin, Globe, Shield, Target as TargetIcon, CalendarDays,
   Menu, LogOut, Building2, Tag, Settings,
+  FileText, ShoppingCart, Wallet, ClipboardList,
 } from "lucide-react";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import OfflineIndicator from "@/components/OfflineIndicator";
@@ -27,13 +28,21 @@ function buildNav(role, slug, tenant) {
     return {
       bottom: [
         { to: `/t/${slug}/manager`, icon: LayoutDashboard, label: "Home", end: true, key: "home" },
-        { to: `/t/${slug}/manager/team`, icon: Users, label: "Team", key: "team" },
-        { to: `/t/${slug}/manager/map`, icon: MapPin, label: "GPS", key: "gps" },
-        { to: `/t/${slug}/manager/leaves`, icon: CalendarDays, label: "Leaves", key: "leaves" },
+        { to: `/t/${slug}/manager/team`, icon: Users, label: "Team", key: "team", perm: "employees" },
+        { to: `/t/${slug}/manager/map`, icon: MapPin, label: "GPS", key: "gps", perm: "gps" },
+        { to: `/t/${slug}/manager/leaves`, icon: CalendarDays, label: "Leaves", key: "leaves", perm: "leaves" },
       ],
       more: [
-        { to: `/t/${slug}/manager/targets`, icon: TargetIcon, label: "Targets" },
-        { to: `/t/${slug}/manager/reports`, icon: BarChart3, label: "Reports" },
+        { to: `/t/${slug}/manager/targets`, icon: TargetIcon, label: "Targets", perm: "targets" },
+        { to: `/t/${slug}/manager/reports`, icon: BarChart3, label: "Reports", perm: "reports" },
+        // Field entry pages (manager can also do own sales/collections/etc when role permits)
+        { to: `/t/${slug}/app/dealers`, icon: Store, label: getLabel(tenant, "customer_plural", "Customers"), perm: "dealers" },
+        { to: `/t/${slug}/app/visit`, icon: FileText, label: "Visit Report", perm: "visits" },
+        { to: `/t/${slug}/app/sales`, icon: ShoppingCart, label: "Sales Entry", perm: "sales" },
+        { to: `/t/${slug}/app/collection`, icon: Wallet, label: "Collection", perm: "collections" },
+        { to: `/t/${slug}/app/dcr`, icon: ClipboardList, label: "DCR", perm: "dcr" },
+        { to: `/t/${slug}/app/enquiry`, icon: MessageSquare, label: "Enquiry", perm: "enquiries" },
+        { to: `/t/${slug}/app/catalogue`, icon: Package, label: "Catalogue", perm: "products" },
       ],
     };
   }
@@ -41,31 +50,34 @@ function buildNav(role, slug, tenant) {
   return {
     bottom: [
       { to: `/t/${slug}/admin`, icon: LayoutDashboard, label: "Home", end: true, key: "home" },
-      { to: `/t/${slug}/admin/employees`, icon: Users, label: "Team", key: "team" },
-      { to: `/t/${slug}/admin/dealers`, icon: Store, label: getLabel(tenant, "dealer_plural", "Dealers").split(" ")[0], key: "dealers" },
-      { to: `/t/${slug}/admin/orders`, icon: ShoppingBag, label: "Orders", key: "orders" },
+      { to: `/t/${slug}/admin/employees`, icon: Users, label: "Team", key: "team", perm: "employees" },
+      { to: `/t/${slug}/admin/dealers`, icon: Store, label: getLabel(tenant, "customer_plural", "Customers").split(" ")[0], key: "dealers", perm: "dealers" },
+      { to: `/t/${slug}/admin/orders`, icon: ShoppingBag, label: "Orders", key: "orders", perm: "orders" },
     ],
     more: [
-      { to: `/t/${slug}/admin/branding`, icon: Palette, label: "Branding" },
-      { to: `/t/${slug}/admin/areas`, icon: Globe, label: "Areas" },
-      { to: `/t/${slug}/admin/roles`, icon: Shield, label: "Roles & Permissions" },
-      { to: `/t/${slug}/admin/products`, icon: Package, label: getLabel(tenant, "product_plural", "Products") },
-      { to: `/t/${slug}/admin/targets`, icon: TargetIcon, label: "Sales Targets" },
-      { to: `/t/${slug}/admin/leaves`, icon: CalendarDays, label: "Leaves" },
-      { to: `/t/${slug}/admin/enquiries`, icon: MessageSquare, label: "Enquiries" },
-      { to: `/t/${slug}/admin/reports`, icon: BarChart3, label: "Reports" },
-      { to: `/t/${slug}/admin/announcements`, icon: Megaphone, label: "Announcements" },
+      { to: `/t/${slug}/admin/branding`, icon: Palette, label: "Branding", perm: "branding" },
+      { to: `/t/${slug}/admin/areas`, icon: Globe, label: "Areas", perm: "areas" },
+      { to: `/t/${slug}/admin/roles`, icon: Shield, label: "Roles & Permissions", perm: "roles" },
+      { to: `/t/${slug}/admin/products`, icon: Package, label: getLabel(tenant, "product_plural", "Products"), perm: "products" },
+      { to: `/t/${slug}/admin/targets`, icon: TargetIcon, label: "Sales Targets", perm: "targets" },
+      { to: `/t/${slug}/admin/leaves`, icon: CalendarDays, label: "Leaves", perm: "leaves" },
+      { to: `/t/${slug}/admin/enquiries`, icon: MessageSquare, label: "Enquiries", perm: "enquiries" },
+      { to: `/t/${slug}/admin/reports`, icon: BarChart3, label: "Reports", perm: "reports" },
+      { to: `/t/${slug}/admin/announcements`, icon: Megaphone, label: "Announcements", perm: "announcements" },
     ],
   };
 }
 
 export default function MobileAdminShell({ role }) {
-  const { user, tenant, t, logout } = useApp();
+  const { user, tenant, t, logout, can } = useApp();
   const navigate = useNavigate();
   const { slug } = useParams();
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  const { bottom, more } = buildNav(role, slug || tenant?.slug, tenant);
+  const raw = buildNav(role, slug || tenant?.slug, tenant);
+  // Filter items by permission (tenant_admin/super_admin always pass through via can())
+  const bottom = raw.bottom.filter((i) => !i.perm || can(i.perm, "read"));
+  const more = raw.more.filter((i) => !i.perm || can(i.perm, "read"));
 
   const onLogout = () => { logout(); navigate("/"); };
   const goto = (to) => { setSheetOpen(false); navigate(to); };
