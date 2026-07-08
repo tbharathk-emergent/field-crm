@@ -1,0 +1,35 @@
+{
+  "summary": "Phase 1-6 backend end-to-end regression — 18/18 pytest cases pass against live REACT_APP_BACKEND_URL. All 7 retrofit phases validated: fail-fast health, subdomain custom_domain roundtrip + stale-tenant self-heal, S3 presign 401/503, Legal CRUD full cycle (v1→v2 demote, invalid kind 400, employee 403, public 404 with code), reviewer bypass (login without slug, cannot self-delete, 403 with 'reviewer'), soft-delete outstanding_balance 409 guard + reset→200 + session revoked→401, logout-all (200 → me 401 revoked), push register/dedupe/bad-platform/unauth/unregister, push/status shape + shard_capacity=15 + shard_configured=false, push/test disabled='not configured', super shards + tenant 403, iOS viewport-fit=cover in index.html, all logins (super/TA/emp/customer), phone_role_conflict 409 (not 500). No regressions.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/admin/push/test", "issue": "Endpoint requires a JSON body (PushTestIn) even though all fields have defaults; calling with no body returns 422. Callers must send `{}`. Consider `payload: PushTestIn = Body(default_factory=PushTestIn)` to accept an empty request."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase1to6_regression.py",
+    "/app/test_reports/pytest/phase1to6_regression.xml"
+  ],
+  "action_items": [
+    "(OPTIONAL/LOW) Make POST /api/admin/push/test body optional (currently 422 if no JSON body sent). Not blocking — Admin UI presumably sends a body."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~2827 lines — earlier code-review comment about splitting routers still stands (uploads/legal/push/tenant into sub-routers).",
+    "PATCH /api/tenant/users/{id} requires a FULL UserIn payload (phone+name+role), which forces callers to fetch-then-PATCH. Consider a true PATCH (exclude_unset) so a partial `{outstanding_amount: 0}` PATCH works without needing to re-send required fields — reduces race conditions on concurrent edits.",
+    "reviewer bypass endpoint returns detail plain-string 'reviewer'; other soft-delete errors return dict {code: ...}. Consider unifying to {code: 'reviewer_no_self_delete'} for programmatic checks in the frontend."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase1to6_regression.py (new — 18 pytest cases covering all 7 phases end-to-end against live URL)"
+  ],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "not tested (per request)"},
+  "test_credentials": "From /app/memory/test_credentials.md — SA 9858558555/557725, TA 9000000001, Mgr 9000000002, Emp 9000000003, Dealer 9000000004, Customer 9000000007 (role_hint=customer), Reviewer 9898989898 (no slug); OTP 123456; slug=demo.",
+  "seed_data_creation": "Test creates one ephemeral customer with random 99XXXXXXXX phone for soft-delete test — soft-deleted at end of test so it lingers with deleted_at set (harmless, phone recycled by random on next run). Legal Terms v1+v2 persist under demo tenant (additive) — safe. push_token 'ci-tok' registered+unregistered within same test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 7 retrofit phases green end-to-end. Reusable regression file: /app/backend/tests/test_phase1to6_regression.py. IMPORTANT quirks: (1) /api/admin/push/test requires an empty JSON body `{}` not no-body; (2) PATCH /api/tenant/users/{id} needs FULL UserIn payload; (3) reviewer bypass detail is a plain string 'reviewer', other soft-delete errors are dict {code:...}. Legal v2 endpoint returns latest (v1 demoted). Stale tenant returns {detail:{code:'tenant_not_found'}}, legal 404 same shape."
+}

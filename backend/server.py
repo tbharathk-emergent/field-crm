@@ -301,6 +301,18 @@ async def verify_otp(payload: OtpVerifyIn):
     if not user:
         # Auto-register customer (Farmer) self-registration
         if hint == "customer":
+            # Guard against a same-phone collision with a different role (e.g. dealer).
+            # Without this, insert_one hits the (tenant_id, phone) unique index and 500s.
+            clash = await db.users.find_one({"tenant_id": tenant["id"], "phone": phone})
+            if clash:
+                raise HTTPException(
+                    409,
+                    detail={
+                        "code": "phone_role_conflict",
+                        "message": "This phone is already registered in this tenant under a different role. Please use the correct login tab.",
+                        "existing_role": clash.get("role"),
+                    },
+                )
             new_user = User(tenant_id=tenant["id"], phone=phone, name=f"Customer {phone[-4:]}",
                             role="customer", is_active=True)
             await db.users.insert_one(new_user.model_dump())
