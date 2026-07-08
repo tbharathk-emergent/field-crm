@@ -115,6 +115,27 @@ export default function Tenants() {
                 <div className="font-display font-bold">{tn.stats?.customers ?? 0}</div>
               </div>
             </div>
+
+            {/* Feature toggles (industry modules) */}
+            <div className="flex items-center justify-between text-xs bg-emerald-50 border border-emerald-200 rounded-lg p-2 mb-3">
+              <span className="font-medium text-emerald-800">Crop Health Advisor</span>
+              <button
+                data-testid={`toggle-crop-advisor-${tn.slug}`}
+                onClick={async () => {
+                  const enabled = !((tn.features || {}).crop_advisor);
+                  try {
+                    await api.patch(`/super-admin/tenants/${tn.id}/features`, { features: { crop_advisor: enabled } });
+                    toast.success(`Crop Advisor ${enabled ? "enabled" : "disabled"}`);
+                    load();
+                  } catch { toast.error("Failed"); }
+                }}
+                className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                  (tn.features || {}).crop_advisor ? "bg-emerald-600 text-white" : "bg-white border border-emerald-300 text-emerald-700"
+                }`}
+              >
+                {(tn.features || {}).crop_advisor ? "Enabled" : "Enable"}
+              </button>
+            </div>
             <div className="flex gap-2">
               <button data-testid={`edit-tenant-${tn.slug}`} onClick={() => openEdit(tn)} className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg border border-brand-line text-sm hover:bg-brand-bg">
                 <Pencil size={14} /> Edit

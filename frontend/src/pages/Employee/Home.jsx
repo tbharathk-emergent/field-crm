@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import {
   MapPin, Users, FileText, Wallet, ShoppingCart, ClipboardList,
   MessageSquare, Package, Bell, LogIn, LogOut, ChevronRight, CalendarDays, Target as TargetIcon,
-  Sprout,
+  Sprout, Leaf,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -13,7 +13,7 @@ import { startTracking, stopTracking, resumeIfActive } from "@/lib/gpsTracker";
 import OfflineIndicator from "@/components/OfflineIndicator";
 
 export default function Home() {
-  const { tenant, user, t, can } = useApp();
+  const { tenant, user, t, can, hasFeature } = useApp();
   const { slug } = useParams();
   const [att, setAtt] = useState(null);
   const [target, setTarget] = useState(null);
@@ -152,6 +152,7 @@ export default function Home() {
         {card(Package, t("catalogue"), `${base}/catalogue`, "#3498DB", "card-catalogue", "products")}
         {card(CalendarDays, "Leaves", `${base}/leaves`, "#9B59B6", "card-leaves", "leaves")}
         {card(Bell, t("notifications"), `${base}/notifications`, "#E74C3C", "card-notifications")}
+        {hasFeature("crop_advisor") && card(Leaf, "Crop Advisor", `${base}/advisor`, "#27AE60", "card-crop-advisor")}
       </div>
     </div>
   );

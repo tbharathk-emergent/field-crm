@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "@/lib/api";
-import { ShoppingBag, Package, Wallet, MessageSquare, ChevronRight } from "lucide-react";
+import { ShoppingBag, Package, Wallet, MessageSquare, ChevronRight, Leaf } from "lucide-react";
 import { useApp, getLabel } from "@/context/AppContext";
 
 export default function CustHome() {
-  const { user, tenant, t } = useApp();
+  const { user, tenant, t, hasFeature } = useApp();
   const { slug } = useParams();
   const [orders, setOrders] = useState([]);
   useEffect(() => { api.get("/orders").then(r => setOrders(r.data)).catch(() => {}); }, []);
@@ -31,6 +31,20 @@ export default function CustHome() {
         <h1 className="font-display text-2xl font-bold">{user?.name}</h1>
         <div className="text-xs text-brand-mute">{user?.business_name} · {user?.dealer_code}</div>
       </div>
+
+      {hasFeature("crop_advisor") && (
+        <Link to={`${base}/advisor`} data-testid="cust-crop-advisor-card"
+              className="card-surface p-4 bg-gradient-to-br from-emerald-50 to-brand-primary/5 border-brand-primary/30 flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-brand-primary text-white flex items-center justify-center">
+            <Leaf size={22} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-display font-semibold text-brand-primary">Crop Health Advisor</div>
+            <div className="text-xs text-brand-mute">Diseases, pests, treatments & product recommendations</div>
+          </div>
+          <ChevronRight className="text-brand-primary" size={18} />
+        </Link>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         {card(ShoppingBag, t("orders"), orders.length, `${base}/orders`, "#2C5E43")}

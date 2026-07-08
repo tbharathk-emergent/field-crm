@@ -34,6 +34,8 @@ import AdminRoles from "@/pages/TenantAdmin/Roles";
 import AdminTargets from "@/pages/TenantAdmin/Targets";
 import AdminLeaves from "@/pages/TenantAdmin/Leaves";
 import AdminCustomFields from "@/pages/TenantAdmin/CustomFields";
+import AdvisorAdmin from "@/pages/TenantAdmin/AdvisorAdmin";
+import CropAdvisor from "@/pages/Advisor/CropAdvisor";
 
 // Manager
 import ManagerDashboard from "@/pages/Manager/Dashboard";
@@ -109,6 +111,7 @@ function App() {
             <Route path="targets" element={<AdminTargets />} />
             <Route path="leaves" element={<AdminLeaves />} />
             <Route path="custom-fields" element={<AdminCustomFields />} />
+            <Route path="advisor" element={<AdvisorAdmin />} />
           </Route>
 
           {/* Manager */}
@@ -128,6 +131,7 @@ function App() {
             <Route path="reports" element={<ManagerReports />} />
             <Route path="targets" element={<AdminTargets />} />
             <Route path="leaves" element={<AdminLeaves />} />
+            <Route path="advisor" element={<CropAdvisor />} />
           </Route>
 
           {/* Employee PWA */}
@@ -153,6 +157,7 @@ function App() {
             <Route path="notifications" element={<EmpNotifications />} />
             <Route path="profile" element={<EmpProfile />} />
             <Route path="leaves" element={<EmpLeaves />} />
+            <Route path="advisor" element={<CropAdvisor />} />
           </Route>
 
           {/* Customer / Dealer PWA (B2C farmers + B2B dealers can both shop) */}
@@ -171,6 +176,7 @@ function App() {
             <Route path="cart" element={<CustCart />} />
             <Route path="orders" element={<CustOrders />} />
             <Route path="account" element={<CustAccount />} />
+            <Route path="advisor" element={<CropAdvisor />} />
           </Route>
 
           <Route path="*" element={<NotFound />} />

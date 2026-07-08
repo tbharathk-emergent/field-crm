@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, Store, Package, ShoppingBag, MessageSquare, BarChart3,
   Palette, Megaphone, MapPin, Globe, Shield, Target as TargetIcon, CalendarDays,
   Menu, LogOut, Building2, Tag, Settings,
-  FileText, ShoppingCart, Wallet, ClipboardList, Sprout, SlidersHorizontal,
+  FileText, ShoppingCart, Wallet, ClipboardList, Sprout, SlidersHorizontal, Leaf,
 } from "lucide-react";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import OfflineIndicator from "@/components/OfflineIndicator";
@@ -35,6 +35,7 @@ function buildNav(role, slug, tenant) {
       more: [
         { to: `/t/${slug}/manager/targets`, icon: TargetIcon, label: "Targets", perm: "targets" },
         { to: `/t/${slug}/manager/reports`, icon: BarChart3, label: "Reports", perm: "reports" },
+        { to: `/t/${slug}/manager/advisor`, icon: Leaf, label: "Crop Advisor", feature: "crop_advisor" },
         // Field entry pages (manager can also do own sales/collections/etc when role permits)
         { to: `/t/${slug}/app/dealers`, icon: Store, label: getLabel(tenant, "dealer_plural", "Dealers"), perm: "dealers" },
         { to: `/t/${slug}/app/customers`, icon: Sprout, label: getLabel(tenant, "customer_plural", "Customers"), perm: "customers" },
@@ -57,6 +58,7 @@ function buildNav(role, slug, tenant) {
     ],
     more: [
       { to: `/t/${slug}/admin/customers`, icon: Sprout, label: getLabel(tenant, "customer_plural", "Customers"), perm: "customers" },
+      { to: `/t/${slug}/admin/advisor`, icon: Leaf, label: "Crop Advisor", feature: "crop_advisor" },
       { to: `/t/${slug}/admin/branding`, icon: Palette, label: "Branding", perm: "branding" },
       { to: `/t/${slug}/admin/areas`, icon: Globe, label: "Areas", perm: "areas" },
       { to: `/t/${slug}/admin/roles`, icon: Shield, label: "Roles & Permissions", perm: "roles" },
@@ -72,15 +74,16 @@ function buildNav(role, slug, tenant) {
 }
 
 export default function MobileAdminShell({ role }) {
-  const { user, tenant, t, logout, can } = useApp();
+  const { user, tenant, t, logout, can, hasFeature } = useApp();
   const navigate = useNavigate();
   const { slug } = useParams();
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const raw = buildNav(role, slug || tenant?.slug, tenant);
-  // Filter items by permission (tenant_admin/super_admin always pass through via can())
-  const bottom = raw.bottom.filter((i) => !i.perm || can(i.perm, "read"));
-  const more = raw.more.filter((i) => !i.perm || can(i.perm, "read"));
+  // Filter by permission + feature flag
+  const passFilter = (i) => (!i.perm || can(i.perm, "read")) && (!i.feature || hasFeature(i.feature));
+  const bottom = raw.bottom.filter(passFilter);
+  const more = raw.more.filter(passFilter);
 
   const onLogout = () => { logout(); navigate("/"); };
   const goto = (to) => { setSheetOpen(false); navigate(to); };

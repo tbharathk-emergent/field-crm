@@ -4,9 +4,10 @@ from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import ReturnDocument
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 from pathlib import Path
 import os
 import io
@@ -21,6 +22,8 @@ from models import (
     FileRecord, PlatformSettings, now_iso, gen_id,
     AreaNode, Role, LeaveRequest, Target, PERMISSION_MODULES,
     CustomField, CUSTOM_FIELD_MODULES, CUSTOM_FIELD_TYPES,
+    Crop, AdvisoryEntry, SeasonalAdvisory, UserFavorite, RecentView,
+    ADVISORY_TYPES,
 )
 from auth import (
     make_token, decode_token, get_current_user, require_roles,
@@ -65,6 +68,12 @@ async def ensure_indexes():
     await db.attendance.create_index([("tenant_id", 1), ("user_id", 1), ("date", 1)], unique=True)
     await db.locations.create_index([("tenant_id", 1), ("user_id", 1), ("timestamp", 1)])
     await db.custom_fields.create_index([("tenant_id", 1), ("module", 1), ("field_key", 1)], unique=True)
+    await db.crops.create_index([("tenant_id", 1), ("name", 1)])
+    await db.advisory_entries.create_index([("tenant_id", 1), ("type", 1)])
+    await db.advisory_entries.create_index([("tenant_id", 1), ("crop_ids", 1)])
+    await db.seasonal_advisories.create_index([("tenant_id", 1), ("is_published", 1)])
+    await db.user_favorites.create_index([("user_id", 1), ("entity_id", 1)], unique=True)
+    await db.recent_views.create_index([("user_id", 1), ("viewed_at", -1)])
 
 
 @app.on_event("startup")
@@ -320,6 +329,7 @@ class TenantUpdateIn(BaseModel):
     google_maps_api_key: Optional[str] = None
     order_approval_flow: Optional[str] = None
     catalog_mode: Optional[str] = None
+    features: Optional[Dict[str, bool]] = None
 
 
 @api.patch("/super/tenants/{tenant_id}")
@@ -557,7 +567,9 @@ class SelfProfileIn(BaseModel):
     gst_number: Optional[str] = None
     farm_size_acres: Optional[float] = None
     crops: Optional[str] = None
+    my_crops: Optional[List[str]] = None
     custom_data: Optional[Dict[str, Any]] = None
+    dealer_code: Optional[str] = None
 
 
 @api.patch("/me/profile")
@@ -565,6 +577,19 @@ async def update_my_profile(payload: SelfProfileIn, user: dict = Depends(get_cur
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(400, "Nothing to update")
+    # Server-side validation of required visible_to_customer custom fields
+    if updates.get("custom_data") is not None and user.get("role") in ("customer", "dealer"):
+        module = "customer" if user["role"] == "customer" else "dealer"
+        req_fields = await db.custom_fields.find({
+            "tenant_id": user["tid"], "module": module,
+            "is_active": True, "required": True, "visible_to_customer": True,
+        }).to_list(200)
+        cd = updates["custom_data"]
+        for f in req_fields:
+            v = cd.get(f["field_key"])
+            empty = v is None or v == "" or (isinstance(v, list) and len(v) == 0)
+            if empty:
+                raise HTTPException(400, f"'{f['label']}' is required")
     await db.users.update_one({"id": user["sub"]}, {"$set": updates})
     u = await db.users.find_one({"id": user["sub"]})
     return clean(u)
@@ -1511,6 +1536,323 @@ async def delete_custom_field(cfid: str,
 @api.get("/custom-fields/modules")
 async def custom_field_modules(user: dict = Depends(get_current_user)):
     return {"modules": CUSTOM_FIELD_MODULES, "types": CUSTOM_FIELD_TYPES}
+
+
+# ============================================================
+# Crop Health Advisor (industry-specific, opt-in per tenant)
+# ============================================================
+
+def _require_crop_advisor(tenant: Optional[dict]):
+    """Ensures the tenant has the crop_advisor feature enabled."""
+    if not tenant:
+        raise HTTPException(404, "Tenant not found")
+    if not (tenant.get("features") or {}).get("crop_advisor"):
+        raise HTTPException(403, "Crop Advisor module is not enabled for this tenant")
+
+
+# ---- Crops ----
+class CropIn(BaseModel):
+    name: str
+    scientific_name: Optional[str] = None
+    image_path: Optional[str] = None
+    description: Optional[str] = None
+    season: Optional[str] = None
+    is_active: bool = True
+    order: int = 0
+
+
+@api.get("/crops")
+async def list_crops(user: dict = Depends(get_current_user)):
+    tenant = await db.tenants.find_one({"id": user["tid"]})
+    _require_crop_advisor(tenant)
+    docs = await db.crops.find({"tenant_id": user["tid"], "is_active": True}).sort([("order", 1), ("name", 1)]).to_list(500)
+    return [clean(d) for d in docs]
+
+
+@api.post("/crops")
+async def create_crop(payload: CropIn, user: dict = Depends(require_roles("tenant_admin"))):
+    tenant = await db.tenants.find_one({"id": user["tid"]})
+    _require_crop_advisor(tenant)
+    c = Crop(tenant_id=user["tid"], **payload.model_dump())
+    await db.crops.insert_one(c.model_dump())
+    return clean(c.model_dump())
+
+
+@api.patch("/crops/{cid}")
+async def update_crop(cid: str, payload: CropIn, user: dict = Depends(require_roles("tenant_admin"))):
+    updates = {**payload.model_dump(exclude_none=True), "updated_at": now_iso()}
+    res = await db.crops.update_one({"id": cid, "tenant_id": user["tid"]}, {"$set": updates})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Crop not found")
+    doc = await db.crops.find_one({"id": cid})
+    return clean(doc)
+
+
+@api.delete("/crops/{cid}")
+async def delete_crop(cid: str, user: dict = Depends(require_roles("tenant_admin"))):
+    await db.crops.update_one({"id": cid, "tenant_id": user["tid"]}, {"$set": {"is_active": False}})
+    return {"ok": True}
+
+
+# ---- Advisory Entries (Diseases | Pests | Deficiencies) ----
+class AdvisoryEntryIn(BaseModel):
+    type: str
+    name: str
+    scientific_name: Optional[str] = None
+    crop_ids: List[str] = []
+    category: Optional[str] = None
+    severity: str = "medium"
+    short_description: Optional[str] = None
+    description: Optional[str] = None
+    season: Optional[str] = None
+    symptoms: List[str] = []
+    causes: Optional[str] = None
+    spread: List[str] = []
+    weather: Dict[str, Any] = {}
+    prevention: List[str] = []
+    organic_treatment: Optional[str] = None
+    bio_control: Optional[str] = None
+    natural_remedies: Optional[str] = None
+    chemical_treatment: Dict[str, Any] = {}
+    safety: Dict[str, Any] = {}
+    faqs: List[Dict[str, str]] = []
+    photos: List[Dict[str, Any]] = []
+    documents: List[Dict[str, Any]] = []
+    product_ids: List[str] = []
+    keywords: List[str] = []
+    is_published: bool = True
+
+
+@api.get("/advisory-entries")
+async def list_advisory(type: Optional[str] = None,
+                        crop_id: Optional[str] = None,
+                        q: Optional[str] = None,
+                        limit: int = 100,
+                        offset: int = 0,
+                        published_only: bool = True,
+                        user: dict = Depends(get_current_user)):
+    tenant = await db.tenants.find_one({"id": user["tid"]})
+    _require_crop_advisor(tenant)
+    query: Dict[str, Any] = {"tenant_id": user["tid"]}
+    if type:
+        if type not in ADVISORY_TYPES:
+            raise HTTPException(400, "Invalid type")
+        query["type"] = type
+    if crop_id:
+        query["crop_ids"] = crop_id
+    if published_only and user["role"] not in ("tenant_admin",):
+        query["is_published"] = True
+    if q:
+        rex = {"$regex": q, "$options": "i"}
+        query["$or"] = [
+            {"name": rex}, {"scientific_name": rex},
+            {"symptoms": rex}, {"keywords": rex},
+            {"short_description": rex},
+        ]
+    total = await db.advisory_entries.count_documents(query)
+    docs = await db.advisory_entries.find(query).sort([("updated_at", -1)]).skip(offset).limit(limit).to_list(limit)
+    return {"total": total, "items": [clean(d) for d in docs]}
+
+
+@api.get("/advisory-entries/{aid}")
+async def get_advisory(aid: str, user: dict = Depends(get_current_user)):
+    tenant = await db.tenants.find_one({"id": user["tid"]})
+    _require_crop_advisor(tenant)
+    doc = await db.advisory_entries.find_one_and_update(
+        {"id": aid, "tenant_id": user["tid"]},
+        {"$inc": {"view_count": 1}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not doc:
+        raise HTTPException(404, "Not found")
+    await db.recent_views.insert_one(RecentView(
+        tenant_id=user["tid"], user_id=user["sub"],
+        entity_type="advisory", entity_id=aid,
+    ).model_dump())
+    return clean(doc)
+
+
+@api.post("/advisory-entries")
+async def create_advisory(payload: AdvisoryEntryIn, user: dict = Depends(require_roles("tenant_admin"))):
+    tenant = await db.tenants.find_one({"id": user["tid"]})
+    _require_crop_advisor(tenant)
+    if payload.type not in ADVISORY_TYPES:
+        raise HTTPException(400, f"Invalid type. Use one of {ADVISORY_TYPES}")
+    e = AdvisoryEntry(tenant_id=user["tid"], **payload.model_dump())
+    await db.advisory_entries.insert_one(e.model_dump())
+    return clean(e.model_dump())
+
+
+@api.patch("/advisory-entries/{aid}")
+async def update_advisory(aid: str, payload: AdvisoryEntryIn, user: dict = Depends(require_roles("tenant_admin"))):
+    updates = {**payload.model_dump(), "updated_at": now_iso()}
+    res = await db.advisory_entries.update_one({"id": aid, "tenant_id": user["tid"]}, {"$set": updates})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Not found")
+    doc = await db.advisory_entries.find_one({"id": aid})
+    return clean(doc)
+
+
+@api.delete("/advisory-entries/{aid}")
+async def delete_advisory(aid: str, user: dict = Depends(require_roles("tenant_admin"))):
+    await db.advisory_entries.delete_one({"id": aid, "tenant_id": user["tid"]})
+    return {"ok": True}
+
+
+# ---- Seasonal Advisories ----
+class SeasonalAdvisoryIn(BaseModel):
+    title: str
+    message: str
+    severity: str = "medium"
+    crop_ids: List[str] = []
+    states: List[str] = []
+    districts: List[str] = []
+    regions: List[str] = []
+    valid_from: Optional[str] = None
+    valid_to: Optional[str] = None
+    is_published: bool = True
+
+
+@api.get("/seasonal-advisories")
+async def list_seasonal(active_only: bool = False, user: dict = Depends(get_current_user)):
+    tenant = await db.tenants.find_one({"id": user["tid"]})
+    _require_crop_advisor(tenant)
+    q: Dict[str, Any] = {"tenant_id": user["tid"]}
+    if user["role"] != "tenant_admin":
+        q["is_published"] = True
+    if active_only:
+        today = date.today().isoformat()
+        q["$and"] = [
+            {"$or": [{"valid_from": None}, {"valid_from": {"$lte": today}}]},
+            {"$or": [{"valid_to": None}, {"valid_to": {"$gte": today}}]},
+        ]
+    docs = await db.seasonal_advisories.find(q).sort([("created_at", -1)]).to_list(200)
+    return [clean(d) for d in docs]
+
+
+@api.post("/seasonal-advisories")
+async def create_seasonal(payload: SeasonalAdvisoryIn, user: dict = Depends(require_roles("tenant_admin"))):
+    tenant = await db.tenants.find_one({"id": user["tid"]})
+    _require_crop_advisor(tenant)
+    s = SeasonalAdvisory(tenant_id=user["tid"], created_by=user["sub"], **payload.model_dump())
+    await db.seasonal_advisories.insert_one(s.model_dump())
+    return clean(s.model_dump())
+
+
+@api.patch("/seasonal-advisories/{sid}")
+async def update_seasonal(sid: str, payload: SeasonalAdvisoryIn, user: dict = Depends(require_roles("tenant_admin"))):
+    res = await db.seasonal_advisories.update_one({"id": sid, "tenant_id": user["tid"]},
+                                                   {"$set": {**payload.model_dump(), "updated_at": now_iso()}})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Not found")
+    doc = await db.seasonal_advisories.find_one({"id": sid})
+    return clean(doc)
+
+
+@api.delete("/seasonal-advisories/{sid}")
+async def delete_seasonal(sid: str, user: dict = Depends(require_roles("tenant_admin"))):
+    await db.seasonal_advisories.delete_one({"id": sid, "tenant_id": user["tid"]})
+    return {"ok": True}
+
+
+# ---- Favorites & Recent Views ----
+class FavoriteIn(BaseModel):
+    entity_type: str  # advisory | crop
+    entity_id: str
+
+
+@api.get("/favorites")
+async def list_favorites(entity_type: Optional[str] = None, user: dict = Depends(get_current_user)):
+    q: Dict[str, Any] = {"user_id": user["sub"]}
+    if entity_type:
+        q["entity_type"] = entity_type
+    docs = await db.user_favorites.find(q).sort([("created_at", -1)]).to_list(200)
+    return [clean(d) for d in docs]
+
+
+@api.post("/favorites/toggle")
+async def toggle_favorite(payload: FavoriteIn, user: dict = Depends(get_current_user)):
+    existing = await db.user_favorites.find_one({
+        "user_id": user["sub"], "entity_type": payload.entity_type, "entity_id": payload.entity_id
+    })
+    if existing:
+        await db.user_favorites.delete_one({"id": existing["id"]})
+        return {"favorited": False}
+    fav = UserFavorite(tenant_id=user["tid"], user_id=user["sub"],
+                       entity_type=payload.entity_type, entity_id=payload.entity_id)
+    await db.user_favorites.insert_one(fav.model_dump())
+    return {"favorited": True, "id": fav.id}
+
+
+@api.get("/recent-views")
+async def list_recent_views(limit: int = 20, entity_type: Optional[str] = None,
+                             user: dict = Depends(get_current_user)):
+    q: Dict[str, Any] = {"user_id": user["sub"]}
+    if entity_type:
+        q["entity_type"] = entity_type
+    docs = await db.recent_views.find(q).sort([("viewed_at", -1)]).limit(limit).to_list(limit)
+    # Dedup by entity_id keeping most recent
+    seen = set()
+    out = []
+    for d in docs:
+        if d["entity_id"] in seen:
+            continue
+        seen.add(d["entity_id"])
+        out.append(clean(d))
+    return out
+
+
+# ---- Crop advisor: my_crops selection ----
+class MyCropsIn(BaseModel):
+    crop_ids: List[str]
+
+
+@api.patch("/me/my-crops")
+async def set_my_crops(payload: MyCropsIn, user: dict = Depends(get_current_user)):
+    await db.users.update_one({"id": user["sub"]}, {"$set": {"my_crops": payload.crop_ids}})
+    u = await db.users.find_one({"id": user["sub"]})
+    return clean(u)
+
+
+# ---- Super Admin: toggle tenant features ----
+class TenantFeaturesIn(BaseModel):
+    features: Dict[str, bool]
+
+
+@api.patch("/super-admin/tenants/{tid}/features")
+async def super_set_tenant_features(tid: str, payload: TenantFeaturesIn,
+                                     _sa: dict = Depends(require_roles("super_admin"))):
+    doc = await db.tenants.find_one({"id": tid})
+    if not doc:
+        raise HTTPException(404, "Tenant not found")
+    current = doc.get("features") or {}
+    current.update(payload.features)
+    await db.tenants.update_one({"id": tid}, {"$set": {"features": current, "updated_at": now_iso()}})
+    doc = await db.tenants.find_one({"id": tid})
+    return clean(doc)
+
+
+# ---- Public: search & disease/pest count for a crop (used by crop dashboard) ----
+@api.get("/crops/{cid}/summary")
+async def crop_summary(cid: str, user: dict = Depends(get_current_user)):
+    tenant = await db.tenants.find_one({"id": user["tid"]})
+    _require_crop_advisor(tenant)
+    counts: Dict[str, int] = {}
+    for t in ADVISORY_TYPES:
+        counts[t] = await db.advisory_entries.count_documents({
+            "tenant_id": user["tid"], "crop_ids": cid, "type": t, "is_published": True
+        })
+    # Aggregate recommended products via advisory entries for this crop
+    prod_ids: set = set()
+    async for a in db.advisory_entries.find({"tenant_id": user["tid"], "crop_ids": cid, "is_published": True},
+                                             {"product_ids": 1}):
+        for pid in a.get("product_ids") or []:
+            prod_ids.add(pid)
+    products = []
+    if prod_ids:
+        async for p in db.products.find({"tenant_id": user["tid"], "id": {"$in": list(prod_ids)}}):
+            products.append(clean(p))
+    return {"counts": counts, "products": products}
 
 
 @api.get("/my-permissions")

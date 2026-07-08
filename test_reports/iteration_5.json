@@ -1,0 +1,42 @@
+{
+  "summary": "Phase 3.0 Crop Health Advisor validated end-to-end. Backend: 20/20 new pytest tests pass (test_phase3_crop_advisor.py) covering all 12+ endpoints (features toggle, crops CRUD, advisory CRUD/search/filter/view-count, seasonal alerts, favorites toggle, recent-views, my-crops, crop-summary, /me/profile custom-field required validation). Regression: 47/47 (Phase 2.6 + Phase 3-split) still pass. Frontend: Employee card-crop-advisor + hub (8 tiles) + detail page (all sub-testids calc-area/water/dosage/bottles + live spray-calc update + fav toggle) all work. Tenant Admin /admin/advisor loads with 5 tabs (Rice Blast in Diseases, 10 seeded crops in Crops tab). Customer PWA shows cust-crop-advisor-card, opens hub, mycrop chips select+save works (toast+redirect), My Crops persist on backend confirmed via API. Super Admin toggle-crop-advisor-{slug} chip flips Enable<->Enabled with toast; disable causes /api/crops -> 403 for tenant users; re-enable restores.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AdvisorAdmin.jsx - Alerts tab", "issue": "The 5th admin tab (Seasonal Alerts) uses data-testid='admin-tab-seasonal' instead of the documented 'admin-tab-alerts' from the spec. Selector by 'admin-tab-alerts' returns 0. Recommend renaming key to 'alerts' OR documenting 'seasonal' as the canonical id.", "selector": "[data-testid='admin-tab-alerts']", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Customer PATCH /me/my-crops", "issue": "After successful save, hub is redirected via go('home') but the AppContext user is not refreshed — my_crops persist in DB (verified via re-login API call) but the UI shows no crop-chip-* row even after a full page reload because the customer localStorage user object is not re-hydrated from /auth/me. Fix: call ctx.refreshMe() after api.patch('/me/my-crops') in CropAdvisor.jsx save() (line ~164), OR re-hydrate user from /auth/me on Customer Home / CropAdvisor mount.", "affected_selectors": ["[data-testid^='crop-chip-']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase3_crop_advisor.py",
+    "/app/test_reports/pytest/phase3_crop_advisor.xml"
+  ],
+  "action_items": [
+    "(LOW) Call refreshMe() from AppContext after PATCH /me/my-crops save so the My Crops chips row appears on the customer/employee hub without requiring re-login. CropAdvisor.jsx line ~164.",
+    "(LOW) Align admin tab testid for Seasonal Alerts: either rename key from 'seasonal' -> 'alerts' in AdvisorAdmin.jsx TABS array (line 21) or update the review spec/testid docs."
+  ],
+  "critical_code_review_comments": [
+    "backend/server.py is ~2276 lines — recommend splitting routers (crop_advisor.py, custom_fields.py, orders.py, tenant.py) before Phase 4 for maintainability.",
+    "GET /api/advisory-entries/{aid} inserts a recent_views record on every call — no dedup at insert time. Dedup happens at list-time in /recent-views. Over long usage this table can bloat. Consider $set upsert on (user_id, entity_id) keyed by 'viewed_at' or a TTL index.",
+    "CropIn.model_dump() (POST /crops) has NO exclude_none; combined with `updated_at` PATCH assigning None fields could overwrite existing values. PATCH uses exclude_none — good. POST is fine because it's a create.",
+    "PATCH /advisory-entries uses payload.model_dump() (NOT exclude_none) — full replace semantics on PATCH is misleading. Consider exclude_unset for true PATCH, or rename to PUT.",
+    "PATCH /me/my-crops has NO validation that crop_ids are real crop ids belonging to the tenant. A user could store arbitrary strings. Consider validating against db.crops.",
+    "Frontend AppContext.user is only updated on login; my_crops changes require refreshMe(). Consider auto-refreshMe after any /me/* PATCH via an api interceptor."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase3_crop_advisor.py (new — 20 pytest tests covering all Crop Advisor endpoints, feature toggle, permissions, view-count, favorites, recent-views, my-crops, crop-summary, /me/profile custom-field required validation)"
+  ],
+  "success_rate": {"backend": "100% (20/20 new + 47/47 regression = 67/67)", "frontend": "~95% (all core flows validated; my-crops chips row post-save is stale — refresh required)"},
+  "test_credentials": "From /app/memory/test_credentials.md — SA 9858558555/557725, TA 9000000001, Emp 9000000003, Customer 9000000007 (role_hint=customer), Dealer 9000000004; OTP 123456; slug=demo.",
+  "seed_data_creation": "Tests create TEST_Crop_*, TEST_Adv_*, TEST_Season_*, TEST_Hidden_*, license_* custom field — all cleaned up in-test via delete calls. Customer 9000000007 my_crops was mutated during test (set to first 3 seeded crop IDs) — may want to reset in cleanup if desired, but harmless.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 3.0 backend endpoints all live under /api/crops, /api/advisory-entries, /api/seasonal-advisories, /api/favorites, /api/recent-views, /api/me/my-crops, /api/crops/{cid}/summary, /api/super-admin/tenants/{id}/features. Feature flag: tenant.features.crop_advisor gates all /crops & /advisory-entries reads/writes with 403. Admin tab key for Alerts is 'seasonal' (testid admin-tab-seasonal), not 'alerts'. Recommended-product buttons only render when advisory has non-empty product_ids — seeded advisories have empty product_ids so view/enquire/buy testids weren't visible in default seed. Employee hub tiles all render, spray calculator updates live (calc-bottles reflects area). Customer my_crops persists server-side but frontend user cache doesn't auto-refresh — main-agent should call refreshMe() after save.",
+  "rca of the issue": "My Crops chips missing after save: CropAdvisor.jsx save() calls api.patch('/me/my-crops') but does not update the AppContext user (setUser is not exposed and refreshMe() is not called). The myCrops local state IS updated, but myCropDocs = crops.filter((c) => myCrops.includes(c.id)) — this actually would work in-session. BUT go('home') sets ?view=home which re-renders using user?.my_crops in the initial state (`useState(() => user?.my_crops || [])` won't re-init on route). Actually, after save, myCrops state is still populated in-memory (it's the same component), so myCropDocs.length>0 SHOULD trigger the row. However, on FULL RELOAD the state is re-hydrated from localStorage user which still has empty my_crops (never refreshed). Mitigation: call refreshMe() from AppContext after PATCH /me/my-crops."
+}

@@ -71,6 +71,7 @@ class Tenant(BaseModel):
     google_maps_api_key: Optional[str] = None  # tenant-level placeholder
     order_approval_flow: str = "direct"  # direct | sales_exec | manager | admin
     catalog_mode: str = "direct"  # direct (show prices, cart+checkout) | enquiry_only (hide prices, enquiry flow)
+    features: Dict[str, bool] = Field(default_factory=lambda: {"crop_advisor": False})
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     address: Optional[str] = None
@@ -114,7 +115,8 @@ class User(BaseModel):
     outstanding_amount: float = 0.0
     # farmer-specific (role="customer")
     farm_size_acres: Optional[float] = None
-    crops: Optional[str] = None  # comma-separated
+    crops: Optional[str] = None  # comma-separated (legacy freeform)
+    my_crops: List[str] = []  # crop_ids the farmer has selected in Crop Advisor
     # Custom fields (tenant-defined) → {field_key: value}
     custom_data: Dict[str, Any] = {}
     created_at: str = Field(default_factory=now_iso)
@@ -457,3 +459,150 @@ class CustomField(BaseModel):
     visible_to_customer: bool = True  # if False, customer PWA self-signup hides it
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
+
+
+
+# ============================================================
+# Crop Health Advisor (Industry-specific module, opt-in per tenant)
+# ============================================================
+ADVISORY_TYPES = ["disease", "pest", "deficiency"]
+ADVISORY_CATEGORIES = ["fungal", "viral", "bacterial", "pest", "nutrient_deficiency"]
+PHOTO_STAGES = ["healthy", "early", "medium", "advanced", "closeup"]
+
+
+class Crop(BaseModel):
+    """Master list of crops that a tenant supports (Paddy, Cotton, ...)."""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    tenant_id: str
+    name: str  # e.g. "Paddy"
+    scientific_name: Optional[str] = None
+    image_path: Optional[str] = None
+    description: Optional[str] = None
+    season: Optional[str] = None  # e.g. "Kharif", "Rabi", "Summer"
+    is_active: bool = True
+    order: int = 0
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+
+class AdvisoryPhoto(BaseModel):
+    stage: str = "closeup"  # healthy | early | medium | advanced | closeup
+    label: Optional[str] = None
+    path: str
+    caption: Optional[str] = None
+
+
+class AdvisoryDocument(BaseModel):
+    name: str
+    path: str
+    doc_type: str = "pdf"  # pdf | image | other
+    size_kb: Optional[int] = None
+
+
+class ChemicalTreatment(BaseModel):
+    product_name: Optional[str] = None
+    active_ingredient: Optional[str] = None
+    dosage: Optional[str] = None
+    water_quantity: Optional[str] = None
+    spray_interval: Optional[str] = None
+    max_applications: Optional[str] = None
+    waiting_period: Optional[str] = None
+
+
+class WeatherConditions(BaseModel):
+    temperature: Optional[str] = None
+    humidity: Optional[str] = None
+    rainfall: Optional[str] = None
+    season: Optional[str] = None
+
+
+class SafetyInstructions(BaseModel):
+    ppe: List[str] = []
+    dos: List[str] = []
+    donts: List[str] = []
+    first_aid: Optional[str] = None
+    storage: Optional[str] = None
+
+
+class FAQItem(BaseModel):
+    q: str
+    a: str
+
+
+class AdvisoryEntry(BaseModel):
+    """Unified entity for Disease | Pest | Nutrient Deficiency.
+    `type` field distinguishes them. Content is 100% DB-driven."""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    tenant_id: str
+    type: str  # disease | pest | deficiency
+    name: str
+    scientific_name: Optional[str] = None
+    crop_ids: List[str] = []  # affected crops
+    category: Optional[str] = None  # fungal | viral | bacterial | pest | nutrient_deficiency
+    severity: str = "medium"  # low | medium | high | critical
+    short_description: Optional[str] = None
+    description: Optional[str] = None
+    season: Optional[str] = None
+    symptoms: List[str] = []
+    causes: Optional[str] = None
+    spread: List[str] = []  # wind | water | seed | soil | insects | other
+    weather: WeatherConditions = Field(default_factory=WeatherConditions)
+    prevention: List[str] = []
+    organic_treatment: Optional[str] = None
+    bio_control: Optional[str] = None
+    natural_remedies: Optional[str] = None
+    chemical_treatment: ChemicalTreatment = Field(default_factory=ChemicalTreatment)
+    safety: SafetyInstructions = Field(default_factory=SafetyInstructions)
+    faqs: List[FAQItem] = []
+    photos: List[AdvisoryPhoto] = []
+    documents: List[AdvisoryDocument] = []
+    product_ids: List[str] = []  # mapped product recommendations
+    keywords: List[str] = []  # for search
+    is_published: bool = True
+    view_count: int = 0
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+
+class SeasonalAdvisory(BaseModel):
+    """Admin-published seasonal alert. Can be targeted by crop, state, district."""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    tenant_id: str
+    title: str
+    message: str
+    severity: str = "medium"  # low | medium | high | critical
+    crop_ids: List[str] = []
+    states: List[str] = []
+    districts: List[str] = []
+    regions: List[str] = []
+    valid_from: Optional[str] = None  # YYYY-MM-DD
+    valid_to: Optional[str] = None
+    is_published: bool = True
+    created_by: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+
+class UserFavorite(BaseModel):
+    """User's bookmarked advisory entries."""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    tenant_id: str
+    user_id: str
+    entity_type: str  # advisory | crop
+    entity_id: str
+    created_at: str = Field(default_factory=now_iso)
+
+
+class RecentView(BaseModel):
+    """Automatic recently-viewed history."""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=gen_id)
+    tenant_id: str
+    user_id: str
+    entity_type: str
+    entity_id: str
+    viewed_at: str = Field(default_factory=now_iso)

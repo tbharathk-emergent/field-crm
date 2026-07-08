@@ -5,21 +5,29 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useApp } from "@/context/AppContext";
 
 /**
  * <CustomFieldsForm module="dealer" data={form.custom_data || {}} onChange={(cd) => setForm({...form, custom_data: cd})} />
- * Fetches tenant custom fields for the given module and renders inputs.
+ * Prefers cached tenant custom fields from AppContext; falls back to a direct API call.
  * For customer PWA self-signup pass `viewerRole="customer"` to filter to visible-to-customer only.
  */
 export default function CustomFieldsForm({ module, data = {}, onChange, viewerRole = null, compact = false }) {
-  const [fields, setFields] = useState([]);
+  const app = useApp();
+  const cached = app?.customFieldsFor ? app.customFieldsFor(module) : null;
+  const [fields, setFields] = useState(cached || []);
 
   useEffect(() => {
     if (!module) return;
+    if (cached && cached.length >= 0) {
+      setFields(cached);
+      return;
+    }
     api.get(`/custom-fields`, { params: { module } })
       .then((r) => setFields(r.data || []))
       .catch(() => setFields([]));
-  }, [module]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [module, cached?.length]);
 
   const filtered = viewerRole === "customer" || viewerRole === "dealer"
     ? fields.filter(f => f.visible_to_customer !== false)

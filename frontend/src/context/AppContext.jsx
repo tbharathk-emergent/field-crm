@@ -27,6 +27,8 @@ export function AppProvider({ children }) {
     const p = localStorage.getItem("fc_perms");
     return p ? JSON.parse(p) : {};
   });
+  const [customFields, setCustomFields] = useState([]);
+  const [features, setFeatures] = useState(() => tenant?.features || {});
 
   const t = useCallback((key) => translate(lang, key), [lang]);
 
@@ -45,6 +47,21 @@ export function AppProvider({ children }) {
       localStorage.setItem("fc_perms", JSON.stringify(p));
     }).catch(() => {});
   }, [token]);
+
+  // Load & cache all custom fields per tenant/user on token change
+  useEffect(() => {
+    if (!token) { setCustomFields([]); return; }
+    api.get("/custom-fields").then((r) => setCustomFields(r.data || [])).catch(() => {});
+  }, [token]);
+
+  // Reflect features change when tenant updates
+  useEffect(() => { setFeatures(tenant?.features || {}); }, [tenant]);
+
+  const customFieldsFor = useCallback((module) => (
+    customFields.filter((f) => f.module === module).sort((a, b) => (a.order || 0) - (b.order || 0))
+  ), [customFields]);
+
+  const hasFeature = useCallback((key) => !!features[key], [features]);
 
   const can = useCallback((module, action = "read") => {
     if (user?.role === "super_admin" || user?.role === "tenant_admin") return true;
@@ -112,6 +129,7 @@ export function AppProvider({ children }) {
     <AppContext.Provider value={{
       token, user, tenant, lang, setLang, t, permissions, can,
       loginSuccess, logout, loadPublicTenant, refreshTenant, applyTenantTheme, refreshMe,
+      customFields, customFieldsFor, features, hasFeature,
     }}>
       {children}
     </AppContext.Provider>

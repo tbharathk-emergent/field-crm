@@ -6,6 +6,7 @@ from pymongo.errors import DuplicateKeyError
 from models import (
     Plan, Tenant, TenantTheme, TenantLabels, User, Product, PlatformSettings,
     AreaNode, Role, Target, PERMISSION_MODULES, now_iso, gen_id,
+    Crop, AdvisoryEntry, SeasonalAdvisory,
 )
 
 
@@ -75,6 +76,7 @@ async def seed_all(db):
             contact_email="admin@akshara.demo",
             contact_phone="9000000001",
             address="Hyderabad, Telangana",
+            features={"crop_advisor": True},
         )
         await _safe_insert(db.tenants, tenant.model_dump())
         tenant_id = tenant.id
@@ -318,3 +320,136 @@ async def seed_all(db):
                 t = Target(tenant_id=tid, user_id=udoc["id"],
                            user_name=udoc.get("name", ""), month=cur_month, sales_target=tgt)
                 await _safe_insert(db.targets, t.model_dump())
+
+        # ---- Crop Advisor: enable feature + seed crops/advisories ----
+        if not (demo.get("features") or {}).get("crop_advisor"):
+            await db.tenants.update_one(
+                {"id": tid},
+                {"$set": {"features": {**(demo.get("features") or {}), "crop_advisor": True}}},
+            )
+
+        crop_seed = [
+            ("Paddy", "Oryza sativa", "Kharif", "Staple cereal — grown across India in Kharif season."),
+            ("Cotton", "Gossypium hirsutum", "Kharif", "Major cash crop — heavy pest pressure."),
+            ("Chilli", "Capsicum annuum", "Kharif/Rabi", "Spice crop — thrips + viral disease prone."),
+            ("Tomato", "Solanum lycopersicum", "Rabi", "Vegetable — early blight & fruit borer common."),
+            ("Groundnut", "Arachis hypogaea", "Kharif", "Oilseed — leaf spot & aphid risk."),
+            ("Maize", "Zea mays", "Kharif", "Cereal — fall armyworm major threat."),
+            ("Banana", "Musa paradisiaca", "Perennial", "Fruit — panama wilt, sigatoka."),
+            ("Mango", "Mangifera indica", "Perennial", "Fruit — anthracnose & hopper."),
+            ("Onion", "Allium cepa", "Rabi", "Bulb crop — purple blotch."),
+            ("Turmeric", "Curcuma longa", "Kharif", "Spice — rhizome rot."),
+        ]
+        crop_id_map: dict = {}
+        for idx, (nm, sci, seas, desc) in enumerate(crop_seed):
+            existing = await db.crops.find_one({"tenant_id": tid, "name": nm})
+            if existing:
+                crop_id_map[nm] = existing["id"]
+                continue
+            c = Crop(tenant_id=tid, name=nm, scientific_name=sci, season=seas,
+                     description=desc, order=idx)
+            await _safe_insert(db.crops, c.model_dump())
+            crop_id_map[nm] = c.id
+
+        # A minimal set of advisory entries for Paddy, Cotton, Chilli
+        # Only insert if collection is currently empty (idempotent)
+        if await db.advisory_entries.count_documents({"tenant_id": tid}) == 0:
+            paddy_id = crop_id_map.get("Paddy")
+            cotton_id = crop_id_map.get("Cotton")
+            chilli_id = crop_id_map.get("Chilli")
+
+            samples = [
+                {
+                    "type": "disease", "name": "Rice Blast",
+                    "scientific_name": "Magnaporthe oryzae", "crop_ids": [paddy_id] if paddy_id else [],
+                    "category": "fungal", "severity": "high",
+                    "short_description": "Diamond-shaped grey lesions on leaves & neck rot.",
+                    "description": "One of the most destructive fungal diseases of rice worldwide.",
+                    "season": "Kharif",
+                    "symptoms": ["Diamond-shaped spots on leaves", "Grey-white lesion centers",
+                                  "Neck rot at panicle base", "Empty grains"],
+                    "causes": "Fungus thrives in wet, humid weather with dew and low night temps.",
+                    "spread": ["wind", "water", "seed"],
+                    "weather": {"temperature": "25-28°C", "humidity": ">90%",
+                                 "rainfall": "Frequent", "season": "Kharif"},
+                    "prevention": ["Use resistant varieties", "Balanced fertilization — avoid excess N",
+                                    "Field sanitation", "Seed treatment"],
+                    "organic_treatment": "Neem oil spray, Trichoderma soil application, silica fertilization.",
+                    "bio_control": "Pseudomonas fluorescens seed treatment @10g/kg seed.",
+                    "natural_remedies": "Cow urine + garlic + chilli extract as leaf spray.",
+                    "chemical_treatment": {
+                        "product_name": "Tricyclazole 75% WP", "active_ingredient": "Tricyclazole",
+                        "dosage": "0.6 g/L", "water_quantity": "200 L/acre",
+                        "spray_interval": "10-15 days", "max_applications": "3",
+                        "waiting_period": "21 days"
+                    },
+                    "safety": {"ppe": ["Gloves", "Mask", "Goggles", "Full sleeves"],
+                                "dos": ["Spray in morning/evening", "Wash hands after use"],
+                                "donts": ["Do not eat/drink while spraying", "Do not spray in wind"],
+                                "first_aid": "In case of skin contact — wash with soap; eye — flush with water 15 min.",
+                                "storage": "Cool dry place, out of reach of children."},
+                    "faqs": [{"q": "When to spray?", "a": "At first sign of leaf spots or when weather turns humid."},
+                              {"q": "Can I mix with other pesticides?", "a": "Consult local agronomist."}],
+                    "keywords": ["blast", "leaf spot", "paddy", "rice", "neck rot"],
+                    "is_published": True,
+                },
+                {
+                    "type": "pest", "name": "Pink Bollworm",
+                    "scientific_name": "Pectinophora gossypiella",
+                    "crop_ids": [cotton_id] if cotton_id else [],
+                    "category": "pest", "severity": "high",
+                    "short_description": "Larvae feed inside cotton bolls damaging seed and lint.",
+                    "season": "Kharif",
+                    "symptoms": ["Rosette flowers", "Green bolls with entry holes",
+                                  "Discoloured lint", "Reduced boll weight"],
+                    "causes": "Adult moth lays eggs on flower buds. Larva enters boll and feeds inside.",
+                    "spread": ["wind", "insects"],
+                    "weather": {"temperature": "25-32°C", "humidity": "60-80%",
+                                 "rainfall": "Variable", "season": "Kharif late"},
+                    "prevention": ["Pheromone traps @5/acre", "Timely sowing", "Destroy crop stubble",
+                                    "Rotation with non-host crop"],
+                    "organic_treatment": "Neem seed kernel extract 5% + Beauveria bassiana.",
+                    "chemical_treatment": {
+                        "product_name": "Emamectin Benzoate 5% SG", "active_ingredient": "Emamectin",
+                        "dosage": "0.4 g/L", "water_quantity": "200 L/acre",
+                        "spray_interval": "12 days", "max_applications": "3", "waiting_period": "7 days"
+                    },
+                    "safety": {"ppe": ["Gloves", "Mask"], "dos": ["Spray in evening"],
+                                "donts": ["Don't spray during flowering peak"],
+                                "first_aid": "Wash exposed area with soap.", "storage": "Locked cabinet."},
+                    "keywords": ["bollworm", "cotton", "moth", "pink"],
+                    "is_published": True,
+                },
+                {
+                    "type": "deficiency", "name": "Nitrogen Deficiency",
+                    "crop_ids": [paddy_id, cotton_id, chilli_id] if paddy_id else [],
+                    "category": "nutrient_deficiency", "severity": "medium",
+                    "short_description": "Yellowing of older leaves + stunted growth.",
+                    "symptoms": ["Pale yellow older leaves", "Stunted growth",
+                                  "Reduced tillering", "Low yield"],
+                    "causes": "Insufficient nitrogen supply — leaching, sandy soils, low organic matter.",
+                    "prevention": ["Balanced NPK", "Green manuring", "FYM 5 t/acre"],
+                    "organic_treatment": "Vermicompost, cattle manure, urea foliar spray 1%.",
+                    "chemical_treatment": {"product_name": "Urea 46% N",
+                                             "dosage": "40-60 kg/acre split doses",
+                                             "waiting_period": "N/A"},
+                    "keywords": ["yellow leaves", "stunted", "deficiency", "N"],
+                    "is_published": True,
+                },
+            ]
+            for s in samples:
+                e = AdvisoryEntry(tenant_id=tid, **s)
+                await _safe_insert(db.advisory_entries, e.model_dump())
+
+        # Seasonal advisory
+        if await db.seasonal_advisories.count_documents({"tenant_id": tid}) == 0:
+            sa = SeasonalAdvisory(
+                tenant_id=tid, title="Heavy Rainfall Alert",
+                message="Heavy rainfall expected next 5 days. High risk of Rice Blast disease. Inspect fields every 3 days and apply preventive spray.",
+                severity="high",
+                crop_ids=[crop_id_map.get("Paddy")] if crop_id_map.get("Paddy") else [],
+                states=["Telangana", "Andhra Pradesh"],
+                is_published=True,
+            )
+            await _safe_insert(db.seasonal_advisories, sa.model_dump())
+

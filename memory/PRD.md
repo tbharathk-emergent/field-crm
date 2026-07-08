@@ -58,6 +58,27 @@ Multi-tenant SaaS Field Force Management platform (FieldCRM / localappstore.in) 
   - Backend enforces: `POST /api/orders` returns 400 if tenant `catalog_mode==enquiry_only`.
 - **Self-profile** endpoint `PATCH /api/me/profile` — dealers/customers can edit their own profile (including custom_data) from the shop PWA account page.
 
+### Phase 3.0 — Crop Health Advisor Module (Feb 2026) 🌱
+- **Industry-specific, opt-in module** — `tenant.features.crop_advisor` toggle. Super Admin enables per tenant via new endpoint `PATCH /api/super-admin/tenants/{id}/features` and Tenants management card.
+- **Database-driven content** (no hardcoding):
+  - `crops` — master list per tenant (Paddy, Cotton, Chilli … seeded 10 crops)
+  - `advisory_entries` — unified `disease | pest | deficiency` entries with 18 sections (basic info, photos, symptoms, causes, weather, spread, prevention, organic/chemical treatment, safety instructions, FAQs, documents, product recommendations, keywords)
+  - `seasonal_advisories` — targeted alerts (crop / state / district / date range)
+  - `user_favorites` + `recent_views` — bookmarks & auto-tracked history
+  - Photos & PDFs uploads only (video not supported anywhere in this module)
+- **User flows** (`/t/:slug/{app|manager|admin|shop}/advisor`):
+  - Hub with 8 tiles: My Crops · Diseases · Pests · Deficiencies · Seasonal Alerts · AI Detection (Coming Soon, disabled) · Recently Viewed · Favourites
+  - My Crops selector saves to `user.my_crops` (array of crop IDs)
+  - Crop Dashboard shows counts by type + recommended products for a specific crop
+  - Advisory list with search + crop filter chips
+  - Advisory detail — all 18 sections, integrated Spray Calculator, share-to-WhatsApp button, favorite toggle
+  - Product recommendations with **View / Enquire / Buy or Locate Dealer** buttons — respects existing `catalog_mode` for the enquire vs buy choice
+- **Admin CRUD** at `/t/:slug/admin/advisor` — tabbed manager for Crops · Diseases · Pests · Deficiencies · Seasonal Alerts. Full-fidelity form with photo/doc uploads, product mapping (multi-select).
+- **Menu placement**: More menu link (feature-flag gated) for admin, manager and employee. Top card on Customer/Dealer PWA home.
+- Demo tenant seeded with 3 sample advisories (Rice Blast, Pink Bollworm, Nitrogen Deficiency) + one seasonal alert.
+- **AppContext cache**: Custom fields are now cached at token-load (`customFieldsFor(module)`) to avoid 5x refetches. `hasFeature("crop_advisor")` helper available.
+- **Server-side validation**: `PATCH /api/me/profile` now blocks with 400 when required visible-to-customer custom fields are empty.
+
 ### Phase 2 (Feb 2026)
 - **Area Hierarchy** (Country → State → District → Area) — `/api/areas` CRUD, tree UI at `/t/:slug/admin/areas`. 8 nodes seeded for demo tenant (India / Telangana+AP / Hyderabad+Warangal+Karimnagar / Hyderabad N+S).
 - **Custom Roles & Permissions** — `/api/roles`, `/api/permission-modules`, `/api/my-permissions`. UI at `/t/:slug/admin/roles` with module×{read,write} matrix; 2 default roles seeded (Sales Executive, Read-Only Observer). Employees PWA cards gate visibility via `can()`.
