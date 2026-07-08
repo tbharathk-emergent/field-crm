@@ -9,6 +9,20 @@ import { api } from "@/lib/api";
 
 const SUPER_ADMIN_PHONE = "9858558555";
 
+/**
+ * Backend errors may return either `detail: "string"` (legacy) or
+ * `detail: { code, message }` (Phase 2/3/4 structured errors). Sonner
+ * cannot render an object — it prints "[object Object]" — so we always
+ * squash to a user-readable string here.
+ */
+function errMsg(e, fallback) {
+  const d = e?.response?.data?.detail;
+  if (!d) return fallback;
+  if (typeof d === "string") return d;
+  if (typeof d === "object") return d.message || d.code || fallback;
+  return fallback;
+}
+
 export default function Login() {
   const { slug } = useParams();
   const { tenant, t, loginSuccess, loadPublicTenant } = useApp();
@@ -54,7 +68,11 @@ export default function Login() {
       setResendIn(30);
       toast.success(`OTP sent via ${channel.toUpperCase()} (mock: ${res.data.mock_otp})`);
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Failed to send OTP");
+      // Surface the backend reason so users see the real cause instead of a generic "Failed to send OTP".
+      // Also logs to console for support triage.
+      const msg = errMsg(e, "Failed to send OTP");
+      console.error("request-otp failed:", e?.response?.status, e?.response?.data || e?.message);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -77,7 +95,9 @@ export default function Login() {
       else if (u.role === "customer" || u.role === "dealer") navigate(`/t/${tslug}/shop`);
       else navigate(`/t/${tslug}/app`);
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Invalid OTP");
+      const msg = errMsg(e, "Invalid OTP");
+      console.error("verify-otp failed:", e?.response?.status, e?.response?.data || e?.message);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
