@@ -157,8 +157,25 @@ export default function Landing() {
 
       <footer className="border-t border-brand-line bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-8 py-6 flex flex-col sm:flex-row gap-3 items-center justify-between text-xs text-brand-mute">
-          <div>© FieldCRM · localappstore.in · Multi-tenant Field Force Platform</div>
-          <div>White-label PWA · {creds ? `${creds.users.length} demo accounts available` : "Loading..."}</div>
+          <div data-testid="landing-footer-copy">© FieldCRM · localappstore.in · Multi-tenant Field Force Platform</div>
+          <nav className="flex flex-wrap items-center gap-x-4 gap-y-1" aria-label="Legal">
+            <Link to="/legal/privacy" data-testid="landing-legal-privacy"
+                  className="hover:text-brand-primary hover:underline">
+              Privacy Policy
+            </Link>
+            <Link to="/legal/terms" data-testid="landing-legal-terms"
+                  className="hover:text-brand-primary hover:underline">
+              Terms of Service
+            </Link>
+            <Link to="/legal/refund" data-testid="landing-legal-refund"
+                  className="hover:text-brand-primary hover:underline">
+              Refund Policy
+            </Link>
+            <Link to="/legal/contact" data-testid="landing-legal-contact"
+                  className="hover:text-brand-primary hover:underline">
+              Contact
+            </Link>
+          </nav>
         </div>
       </footer>
     </div>

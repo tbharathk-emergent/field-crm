@@ -184,3 +184,45 @@ body {
     padding-right: var(--sa-right);
 }
 
+
+/* Legal document typography (Legal.jsx renderMarkdown output) */
+.legal-prose h1 { font-size: 1.5rem; font-weight: 600; margin: 1.5rem 0 0.75rem; font-family: var(--font-display, inherit); }
+.legal-prose h2 { font-size: 1.25rem; font-weight: 600; margin: 1.5rem 0 0.5rem; font-family: var(--font-display, inherit); }
+.legal-prose h3 { font-size: 1.05rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
+.legal-prose h4, .legal-prose h5, .legal-prose h6 { font-weight: 600; margin: 1rem 0 0.25rem; }
+.legal-prose p { margin: 0.5rem 0; line-height: 1.65; }
+.legal-prose ul, .legal-prose ol { margin: 0.5rem 0; padding-left: 1.5rem; }
+.legal-prose ul { list-style: disc; }
+.legal-prose ol { list-style: decimal; }
+.legal-prose li { margin: 0.2rem 0; line-height: 1.55; }
+.legal-prose a { color: rgb(21 128 61); text-decoration: underline; }
+.legal-prose a:hover { text-decoration: none; }
+.legal-prose strong { font-weight: 600; }
+.legal-prose em { font-style: italic; }
+.legal-prose code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85em;
+    background: rgb(243 244 246);
+    padding: 0.1em 0.4em;
+    border-radius: 4px;
+}
+.legal-prose pre {
+    background: rgb(243 244 246);
+    padding: 0.8rem 1rem;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 0.75rem 0;
+}
+.legal-prose pre code { background: transparent; padding: 0; }
+.legal-prose blockquote {
+    border-left: 3px solid rgb(203 213 225);
+    padding: 0.1rem 0.75rem;
+    color: rgb(75 85 99);
+    margin: 0.5rem 0;
+    font-style: italic;
+}
+.legal-prose hr {
+    border: 0;
+    border-top: 1px solid rgb(229 231 235);
+    margin: 1.5rem 0;
+}

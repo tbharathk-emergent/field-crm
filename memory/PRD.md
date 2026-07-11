@@ -305,3 +305,33 @@ Fully automated per-tenant Capacitor build via `python3 build_app.py`.
 **Docs**
 - New `/app/documentation/build-system.md` — full CLI reference, env-var table, isolation guarantees, Mac finishing steps.
 - `backend/.env.example` — added ANDROID_HOME, ANDROID_KEYSTORE_*, IOS_TEAM_ID, IOS_BUNDLE_PREFIX, BUILD_OUT_ROOT.
+
+
+## Phase 10 (continued) — Legal Pages + Logo Preview (Feb 11, 2026)
+
+**1. Tenant Logo Preview**
+- `Tenants.jsx` now renders the uploaded tenant logo as a `<TenantLogo>` React component (state-driven fallback, no DOM manipulation).
+- Uses `fileUrl(logo_path)` helper with `?auth=<jwt>` query param so `<img>` tags authenticate correctly.
+- Verified in-browser: demo tenant "Akshara Agro" shows the actual logo (naturalWidth=1325). Tenants without a logo fall back to a coloured initial-letter block using `theme.primary`.
+
+**2. Dynamic Legal Pages** (`/api/legal/*` + `LegalPage.jsx`)
+- New `/app/backend/legal_defaults.py` — six platform-default templates (privacy, terms, refund, shipping, about, contact) baked into the code.
+- `/api/public/legal/{kind}` now transparently falls back to the platform default when the tenant hasn't published its own doc. Response includes `is_platform_default: True` so the UI can show a banner.
+- **Zero migration required** — every existing AND new tenant instantly has working legal pages the day they exist.
+- Rewrote `Legal.jsx` with proper markdown rendering (new `/app/frontend/src/lib/markdown.js` — 130 LOC zero-deps parser: headings, bold, italic, links, lists, blockquotes, code blocks) + platform-default banner + back link + timestamp.
+- Added `.legal-prose` styles in `index.css` for beautiful typography.
+
+**3. All Tenants Supported**
+- Marketing landing footer (`Landing.jsx`) now has legal links pointing to `/legal/{kind}` which resolve to platform defaults when there's no tenant context — no 404 anywhere.
+- Existing tenants automatically inherit the platform default until their admin publishes a custom doc from Admin → Legal Documents. No migration script needed.
+
+**4. Copy URL Buttons**
+- `Tenants.jsx` card now shows BOTH `Copy Privacy URL` and `Copy Terms URL` buttons (previously only Privacy).
+- Refactored to a `LEGAL_URL_KINDS` config array — easy to add Refund/Shipping/etc. in the future.
+- Copy uses `navigator.clipboard.writeText` with a `document.execCommand("copy")` fallback for insecure-context browsers.
+
+**Tests**: 8 new pytest cases in `test_phase10_legal_platform_defaults.py`. Full Phase-10 suite: **27 passed, 1 skipped**.
+
+**Files touched**:
+- Backend: `legal_defaults.py` (new), `server.py` (`/api/public/legal/{kind}` fallback logic).
+- Frontend: `pages/Legal.jsx` (rewrite), `lib/markdown.js` (new), `index.css` (`.legal-prose` styles), `pages/SuperAdmin/Tenants.jsx` (logo + Copy Terms), `pages/Landing.jsx` (footer legal links).

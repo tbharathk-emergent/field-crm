@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Plus, ExternalLink, Pencil, Copy, Upload as UploadIcon, Loader2, Flame, X } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api, fileUrl } from "@/lib/api";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -18,7 +18,48 @@ const ROOT_DOMAIN = process.env.REACT_APP_ROOT_DOMAIN || "fieldcrm.localappstore
 
 /** Build the tenant's subdomain URL (Phase 9). */
 const tenantUrl = (slug) => `https://${slug}.${ROOT_DOMAIN}`;
-const privacyUrl = (slug) => `${tenantUrl(slug)}/legal/privacy`;
+const legalUrl = (slug, kind) => `${tenantUrl(slug)}/legal/${kind}`;
+
+const LEGAL_URL_KINDS = [
+  { kind: "privacy", label: "Privacy URL" },
+  { kind: "terms", label: "Terms URL" },
+];
+
+/**
+ * Renders the tenant's logo as an <img> when a `logo_path` is set on the
+ * tenant record. Falls back to a coloured initial-letter block on error or
+ * when no logo has been uploaded.
+ *
+ * Uses React state for the fallback (not DOM manipulation) so it survives
+ * re-renders and Playwright timing-sensitive assertions.
+ */
+function TenantLogo({ tn }) {
+  const [failed, setFailed] = useState(false);
+  const showImg = !!tn.logo_path && !failed;
+  const primary = tn.theme?.primary || "#2C5E43";
+
+  if (showImg) {
+    return (
+      <img
+        data-testid={`tenant-logo-${tn.slug}`}
+        src={fileUrl(tn.logo_path)}
+        alt={`${tn.name} logo`}
+        className="w-12 h-12 rounded-xl object-cover border border-brand-line bg-white flex-shrink-0"
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+  return (
+    <div
+      data-testid={`tenant-logo-fallback-${tn.slug}`}
+      className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-display font-bold flex-shrink-0"
+      style={{ background: primary }}
+      aria-label={`${tn.name} logo (fallback)`}
+    >
+      {tn.name?.[0]?.toUpperCase() || "T"}
+    </div>
+  );
+}
 
 export default function Tenants() {
   const [tenants, setTenants] = useState([]);
@@ -200,18 +241,17 @@ export default function Tenants() {
     }
   };
 
-  const copyPrivacy = async (slug) => {
-    const url = privacyUrl(slug);
+  const copyLegalUrl = async (slug, kind, label) => {
+    const url = legalUrl(slug, kind);
     try {
       await navigator.clipboard.writeText(url);
-      toast.success("Privacy URL copied");
+      toast.success(`${label} copied`);
     } catch {
-      // Fallback for insecure contexts / older browsers
       const ta = document.createElement("textarea");
       ta.value = url;
       document.body.appendChild(ta);
       ta.select();
-      try { document.execCommand("copy"); toast.success("Privacy URL copied"); }
+      try { document.execCommand("copy"); toast.success(`${label} copied`); }
       catch { toast.error("Copy failed — long-press to copy"); }
       finally { document.body.removeChild(ta); }
     }
@@ -233,10 +273,7 @@ export default function Tenants() {
         {tenants.map((tn) => (
           <div key={tn.id} data-testid={`tenant-card-${tn.slug}`} className="card-surface p-5 hover:shadow-md transition">
             <div className="flex items-start gap-3 mb-3">
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-display font-bold flex-shrink-0"
-                style={{ background: tn.theme?.primary || "#2C5E43" }}>
-                {tn.name?.[0] || "T"}
-              </div>
+              <TenantLogo tn={tn} />
               <div className="min-w-0 flex-1">
                 <div className="font-display font-semibold truncate">{tn.name}</div>
                 <a href={tenantUrl(tn.slug)} target="_blank" rel="noreferrer"
@@ -287,17 +324,21 @@ export default function Tenants() {
                 {(tn.features || {}).crop_advisor ? "Enabled" : "Enable"}
               </button>
             </div>
-            <div className="flex gap-2">
-              <button data-testid={`edit-tenant-${tn.slug}`} onClick={() => openEdit(tn)} className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg border border-brand-line text-sm hover:bg-brand-bg">
+            <div className="flex flex-wrap gap-2">
+              <button data-testid={`edit-tenant-${tn.slug}`} onClick={() => openEdit(tn)}
+                      className="flex-1 min-w-[80px] inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg border border-brand-line text-sm hover:bg-brand-bg">
                 <Pencil size={14} /> Edit
               </button>
-              <button data-testid={`copy-privacy-${tn.slug}`} onClick={() => copyPrivacy(tn.slug)}
-                      className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg border border-brand-line text-sm hover:bg-brand-bg"
-                      title="Copy Privacy Policy URL">
-                <Copy size={14} /> Privacy URL
-              </button>
+              {LEGAL_URL_KINDS.map(({ kind, label }) => (
+                <button key={kind} data-testid={`copy-${kind}-${tn.slug}`}
+                        onClick={() => copyLegalUrl(tn.slug, kind, label)}
+                        className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg border border-brand-line text-sm hover:bg-brand-bg"
+                        title={`Copy ${label}`}>
+                  <Copy size={14} /> {label}
+                </button>
+              ))}
               <a href={tenantUrl(tn.slug)} target="_blank" rel="noreferrer"
-                 className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg bg-brand-primary/10 text-brand-primary text-sm font-medium hover:bg-brand-primary/20">
+                 className="flex-1 min-w-[80px] inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg bg-brand-primary/10 text-brand-primary text-sm font-medium hover:bg-brand-primary/20">
                 <ExternalLink size={14} /> Visit
               </a>
             </div>
@@ -415,7 +456,7 @@ export default function Tenants() {
               {form.logo_path ? (
                 <img
                   data-testid="tenant-logo-preview"
-                  src={form.logo_path.startsWith("http") ? form.logo_path : `/api/files/view?path=${encodeURIComponent(form.logo_path)}`}
+                  src={form.logo_path.startsWith("http") ? form.logo_path : fileUrl(form.logo_path)}
                   alt="logo preview"
                   className="w-14 h-14 rounded-xl object-cover border border-brand-line bg-white"
                   onError={(e) => { e.currentTarget.style.display = "none"; }}

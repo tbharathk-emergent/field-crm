@@ -2544,20 +2544,29 @@ async def public_legal(
 ):
     """Return the latest published legal doc for a tenant.
 
-    Tenant resolution order: `?slug=` → `X-Tenant-Slug` header → Host header (custom domain / subdomain).
-    Returns 404 with `code=legal_not_found` when the tenant has never published this kind — the frontend
-    should render a platform-default fallback in that case.
+    Tenant resolution order: `?slug=` → `X-Tenant-Slug` header → Host header.
+    If the tenant has not published this kind yet, we return a PLATFORM DEFAULT
+    (so the App Store / Play Store review flow works out-of-the-box for every
+    tenant, existing or new). The response carries `is_platform_default: True`
+    in that case so the frontend can render a "your admin can customize this"
+    banner.
     """
+    from legal_defaults import platform_default  # local import to keep boot fast
+
     _validate_kind(kind)
     tenant_id = await _resolve_public_tenant_id(slug or x_tenant_slug, request_host, x_forwarded_host)
+    # Tenant not resolvable — still return the platform default so /legal/privacy
+    # (with no tenant context) works on the marketing landing page.
     if not tenant_id:
-        raise HTTPException(404, detail={"code": "tenant_not_resolved", "message": "Tenant could not be resolved"})
+        return platform_default(kind)
     doc = await db.legal_docs.find_one(
         {"tenant_id": tenant_id, "kind": kind, "is_published": True},
         sort=[("version", -1)],
     )
     if not doc:
-        raise HTTPException(404, detail={"code": "legal_not_found", "kind": kind, "tenant_id": tenant_id})
+        d = platform_default(kind)
+        d["tenant_id"] = tenant_id
+        return d
     doc = clean(doc)
     return {
         "kind": doc["kind"],
@@ -2565,6 +2574,7 @@ async def public_legal(
         "content_md": doc.get("content_md", ""),
         "version": doc.get("version", 1),
         "published_at": doc.get("published_at"),
+        "is_platform_default": False,
     }
 
 

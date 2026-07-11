@@ -1,17 +1,20 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "@/lib/api";
+import { renderMarkdown } from "@/lib/markdown";
 
 /**
  * Public legal page — /legal/:kind and /t/:slug/legal/:kind
  *
- * Resolves the tenant via (in order):
+ * Resolution order (backend-driven):
  *   1. `:slug` in the URL, if present
- *   2. cached tenant slug in localStorage (fc_tenant_slug)
- *   3. host header on the backend (custom_domain / subdomain)
+ *   2. `X-Tenant-Slug` header (from cached tenant in localStorage)
+ *   3. Host header (custom_domain / subdomain resolution)
+ *   4. Platform default (renders even with zero tenant context — required
+ *      for the marketing landing footer's legal links to work everywhere).
  *
- * Renders the content_md as plain preformatted text — a tiny fallback that
- * keeps the App Store reviewer happy even before any tenant publishes docs.
+ * Response carries `is_platform_default: True` when we're serving a fallback,
+ * so we can show the "your admin can customize this" banner.
  */
 const KIND_TITLES = {
   privacy: "Privacy Policy",
@@ -45,6 +48,7 @@ export default function LegalPage() {
   }, [kind, slug]);
 
   const title = KIND_TITLES[kind] || (kind ? kind.replace(/-/g, " ") : "Legal");
+  const isPlatformDefault = !!state.doc?.is_platform_default;
 
   return (
     <div className="min-h-screen bg-white" data-testid={`legal-page-${kind}`}>
@@ -56,9 +60,21 @@ export default function LegalPage() {
           <div className="text-xs uppercase tracking-widest text-brand-mute">Legal</div>
         </div>
 
-        <h1 className="text-3xl sm:text-4xl font-display font-semibold mb-6" data-testid="legal-title">
+        <h1 className="text-3xl sm:text-4xl font-display font-semibold mb-2" data-testid="legal-title">
           {state.doc?.title || title}
         </h1>
+
+        {isPlatformDefault && (
+          <div
+            data-testid="legal-platform-default-banner"
+            className="mb-5 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-xs px-3 py-2 leading-relaxed"
+          >
+            <strong>Platform default:</strong> your organisation has not
+            published a custom {title} yet. This template is shown as a
+            placeholder — a tenant administrator can override it from
+            <em> Admin → Legal Documents</em>.
+          </div>
+        )}
 
         {state.loading && (
           <div className="text-brand-mute" data-testid="legal-loading">Loading…</div>
@@ -66,11 +82,10 @@ export default function LegalPage() {
 
         {!state.loading && state.doc && (
           <article
-            className="prose prose-sm max-w-none whitespace-pre-wrap font-mono text-sm leading-relaxed border border-brand-line rounded-2xl p-5 bg-neutral-50"
+            className="legal-prose text-sm leading-relaxed"
             data-testid="legal-content"
-          >
-            {state.doc.content_md}
-          </article>
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(state.doc.content_md || "") }}
+          />
         )}
 
         {!state.loading && !state.doc && (
@@ -79,18 +94,13 @@ export default function LegalPage() {
             data-testid="legal-empty"
           >
             <p className="mb-2">
-              This tenant has not published a <strong>{title}</strong> document yet.
-            </p>
-            <p className="text-xs">
-              If you are the tenant administrator, publish one from{" "}
-              <em>Admin → Settings → Legal Documents</em>. The App Store / Play
-              Store require these documents before submission.
+              This document could not be loaded.
             </p>
           </div>
         )}
 
-        {state.doc?.published_at && (
-          <div className="mt-4 text-xs text-brand-mute" data-testid="legal-published-at">
+        {state.doc?.published_at && !isPlatformDefault && (
+          <div className="mt-6 text-xs text-brand-mute" data-testid="legal-published-at">
             Last updated: {new Date(state.doc.published_at).toLocaleDateString()}
           </div>
         )}
