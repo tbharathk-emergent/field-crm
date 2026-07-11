@@ -259,3 +259,19 @@ Layering "Bizil-Pattern" scaffolding onto the existing MVP. **Golden rule: addit
 - `testing_agent_v3_fork` **iteration_6.json → 100% (18/18)** — all seven phases validated end-to-end against live REACT_APP_BACKEND_URL.
 - Full backend pytest: **164 / 164 green** (146 pre-existing + 18 regression suite).
 
+
+
+### Login/OTP Regression Sign-off (Feb 11, 2026)
+- Recurring "Failed to send OTP" bug (user reported 3x) confirmed resolved. Root cause was a transient backend crash-loop after `ROOT_DOMAIN` `.env` change; backend now stable across hot-reload cycles.
+- `testing_agent_v3_fork` **iteration_12.json → 100% backend (8/8) + full frontend flows** for Super Admin (9858558555), Reviewer bypass (9898989898), and Tenant Admin demo (9000000001). `/api/auth/request-otp`, `/verify-otp`, `/auth/me`, `/public/tenant-resolve` all green.
+- New regression suite added: `/app/backend/tests/test_login_regression_iter12.py` (8 tests).
+- Note: super_admin is identified by `user.role == 'super_admin'` (no `is_super_admin` flag on the user object); `/api/public/tenant-resolve` is host-based only (no `?slug=` query support).
+
+### P2/P3 Backlog (open)
+- P2: Server-side enforcement of required `visible_to_customer` custom fields on `/api/me/profile` and self-signup.
+- P2: Pingbix real OTP integration (pending user credentials).
+- P2: Razorpay / Tally integration modules (pending scope + credentials).
+- P3: Extract Logo Upload and Firebase Provisioning subcomponents from `Tenants.jsx`; surface per-platform (iOS/Android) provisioning status in the update dialog.
+- P3: Split `server.py` (3218 lines) into `/app/backend/routes/` by domain (auth/tenants/orders/uploads/legal/…). Optionally add typed response model for `/api/auth/me`.
+- P3 (cosmetic): Fix Recharts `width(-1) height(-1)` container-sizing warnings on tenant admin dashboard tiles.
+- P3 (optional DX): Add `?slug=<x>` query fallback in `/api/public/tenant-resolve` for easier debugging.
