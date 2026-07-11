@@ -1,0 +1,39 @@
+{
+  "summary": "Iter12 regression on FieldCRM login/OTP flow. Verified backend request-otp/verify-otp/auth.me for Super Admin (9858558555/557725), Reviewer Bypass (9898989898/123456), and Tenant Admin demo (9000000001/123456). Confirmed /api/public/tenant-resolve works and doesn't 500. Frontend /login super admin flow and /t/demo tenant staff flow validated end-to-end including 10-digit phone strict enforcement and mock_otp hint display. The recurring 'Failed to send OTP' bug appears fully resolved on this fork.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/public/tenant-resolve", "issue": "Endpoint does not accept ?slug=demo query as hinted in the review request; it is host-based only (host / X-Forwarded-Host / Host header). Not blocking — returns 200 with tenant=null when host doesn't match. Consider adding slug fallback for testability."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Tenant admin dashboard (/t/demo/admin)", "issues": ["Recharts warnings: 'width(-1) and height(-1) of chart should be greater than 0' — cosmetic only; container sizing issue on some tiles."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_login_regression_iter12.py",
+    "/app/test_reports/pytest/iter12_login.xml"
+  ],
+  "action_items": [
+    "(Optional) Support ?slug=<x> query fallback in /api/public/tenant-resolve for easier debugging.",
+    "(Optional) Fix Recharts container sizing warnings in tenant admin dashboard tiles (cosmetic)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 3218 lines — recommend splitting by domain (auth, tenants, orders, etc.) for maintainability.",
+    "auth/me returns nested {user, tenant} but Pydantic response shape is loose (dict) — consider a typed response model.",
+    "Super admin uses `role: 'super_admin'` — no is_super_admin boolean is set on user object (frontend/tests must key off role); ensure this is documented."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_login_regression_iter12.py (new)"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (super admin + tenant admin flows)"},
+  "test_credentials": "Super Admin 9858558555/557725, Reviewer 9898989898/123456, Tenant Admin (demo) 9000000001/123456 — all working.",
+  "seed_data_creation": "None. Reused existing seeded users.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "OTP flow is stable. /api/auth/me is the profile endpoint (NOT /api/me/profile which is PATCH-only). Response shape: {user: {...}, tenant: {...}}. Super admin identified by user.role=='super_admin' (no is_super_admin flag). /api/public/tenant-resolve is host-based only; no slug query param support. Backend pytest test_login_regression_iter12.py (8 tests) can be reused for future regression.",
+  "rca of the issue": "Previous 'Failed to send OTP' recurring bug was traced to backend crash-loops after ROOT_DOMAIN .env changes. On this fork backend is healthy (all OTP endpoints return 200 with correct mock_otp payloads) and Login.jsx 502 retry logic did not double-fire since first attempts already returned 200. No regression observed."
+}
