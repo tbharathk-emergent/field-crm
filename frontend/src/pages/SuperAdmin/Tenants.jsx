@@ -142,13 +142,16 @@ export default function Tenants() {
         throw new Error("missing_firebase_project");
       }
       // Provision both platforms sequentially — the API returns even on failure.
+      // The endpoint auto-falls-back to "re-provision" if the Firebase app for
+      // that package/bundle already exists, so re-saving a tenant is safe.
       const results = [];
       for (const platform of ["android", "ios"]) {
         try {
           const r = await api.post(`/super/tenants/${tenantId}/firebase-config/provision`, {
             platform, firebase_project_id: fbForm.firebase_project_id,
           });
-          results.push({ platform, ok: r.data.ok, error: r.data.result?.error });
+          results.push({ platform, ok: r.data.ok, reused: r.data.reused,
+                         error: r.data.result?.error });
         } catch (e) {
           results.push({ platform, ok: false, error: e?.response?.data?.detail || "Failed" });
         }
@@ -157,7 +160,14 @@ export default function Tenants() {
       if (failed.length) {
         toast.warning(`Firebase auto-provision partial: ${failed.map((f) => `${f.platform}: ${typeof f.error === "object" ? f.error?.message : f.error}`).join("; ").slice(0, 200)}`);
       } else {
-        toast.success("Firebase apps auto-provisioned");
+        const reused = results.filter((r) => r.reused).map((r) => r.platform);
+        if (reused.length === results.length) {
+          toast.success("Firebase config refreshed (apps already existed)");
+        } else if (reused.length) {
+          toast.success(`Firebase apps ready (${reused.join(" + ")} re-fetched, others newly created)`);
+        } else {
+          toast.success("Firebase apps auto-provisioned");
+        }
       }
       return;
     }

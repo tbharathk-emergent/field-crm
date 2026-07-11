@@ -3129,6 +3129,7 @@ async def provision_tenant_firebase_app(
         package_or_bundle=package_or_bundle,
         display_name=display_name,
     )
+    reused = bool(result.get("reused"))
 
     app_entry = TenantFirebaseApp(
         platform=payload.platform,
@@ -3146,13 +3147,15 @@ async def provision_tenant_firebase_app(
          "$setOnInsert": {"id": gen_id(), "tenant_id": tenant_id}},
         upsert=True,
     )
-    if result.get("ok"):
+    # Only increment capacity when we actually created a NEW app on Firebase.
+    # Re-provision (reused=True) fetches an already-counted app, so no bump.
+    if result.get("ok") and not reused:
         await db.firebase_projects.update_one(
             {"id": fp["id"]},
             {"$inc": {"apps_provisioned": 1}, "$set": {"updated_at": now_iso()}},
         )
     tfc = await _load_tfc(tenant_id)
-    return {"ok": bool(result.get("ok")), "result": result, "config": tfc}
+    return {"ok": bool(result.get("ok")), "reused": reused, "result": result, "config": tfc}
 
 
 @api.delete("/super/tenants/{tenant_id}/firebase-config/{platform}")

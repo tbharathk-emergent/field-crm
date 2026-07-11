@@ -446,7 +446,7 @@ function PlatformCard({ platform, app, projects, tenantId, onChanged }) {
         </button>
         {projects.length > 0 && (
           <button onClick={() => setShowProvision(true)} className="btn-primary text-xs" data-testid={`provision-${platform}`}>
-            Auto-provision new app
+            {app?.mode === "auto" ? "Re-provision (refresh config)" : "Auto-provision new app"}
           </button>
         )}
       </div>
@@ -457,7 +457,7 @@ function PlatformCard({ platform, app, projects, tenantId, onChanged }) {
                        onSaved={() => { setShowEdit(false); onChanged(); }} />
       )}
       {showProvision && (
-        <ProvisionModal platform={platform} projects={projects} tenantId={tenantId}
+        <ProvisionModal platform={platform} app={app} projects={projects} tenantId={tenantId}
                         onClose={() => setShowProvision(false)}
                         onSaved={() => { setShowProvision(false); onChanged(); }} />
       )}
@@ -527,9 +527,12 @@ function ExistingModal({ platform, app, projects, tenantId, onClose, onSaved }) 
   );
 }
 
-function ProvisionModal({ platform, projects, tenantId, onClose, onSaved }) {
-  const [firebaseProjectId, setFirebaseProjectId] = useState(projects[0]?.id || "");
-  const [packageOrBundle, setPackageOrBundle] = useState("");
+function ProvisionModal({ platform, app, projects, tenantId, onClose, onSaved }) {
+  const isReprovision = app?.mode === "auto";
+  const [firebaseProjectId, setFirebaseProjectId] = useState(
+    app?.firebase_project_id || projects[0]?.id || "",
+  );
+  const [packageOrBundle, setPackageOrBundle] = useState(app?.package_name || "");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
 
@@ -543,10 +546,23 @@ function ProvisionModal({ platform, projects, tenantId, onClose, onSaved }) {
       });
       setResult(r.data);
       if (r.data.ok) {
-        toast.success(`${platform} app provisioned`);
+        if (r.data.reused) {
+          toast.success(`${platform} config re-downloaded (existing app on Firebase)`);
+        } else {
+          toast.success(`${platform} app provisioned`);
+        }
         setTimeout(onSaved, 700);
       } else {
-        toast.error(r.data.result?.error?.slice(0, 120) || "Provisioning failed");
+        const err = r.data.result?.error || "";
+        // Actionable hints for common cases.
+        if (/ALREADY_EXISTS|already exists/i.test(err)) {
+          toast.error(
+            "This package/bundle already exists on Firebase but could not be re-fetched. "
+            + "Check that the service account has firebase.readonly + firebasemanagement permissions.",
+          );
+        } else {
+          toast.error(err.slice(0, 200) || "Provisioning failed");
+        }
       }
     } catch (e) {
       const d = e?.response?.data?.detail;
@@ -555,23 +571,38 @@ function ProvisionModal({ platform, projects, tenantId, onClose, onSaved }) {
     } finally { setBusy(false); }
   };
 
+  const title = isReprovision
+    ? `Re-provision ${platform} app (download latest config)`
+    : `Auto-provision ${platform} app`;
+
   return (
-    <ModalShell title={`Auto-provision ${platform} app`} onClose={onClose}>
+    <ModalShell title={title} onClose={onClose}>
       <div className="space-y-3">
+        {isReprovision && (
+          <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 p-2 rounded">
+            This tenant already has a {platform} Firebase app.
+            Click <strong>Re-provision</strong> to re-download the latest
+            google-services.json / GoogleService-Info.plist — no new app is
+            created and Firebase capacity is not consumed.
+          </div>
+        )}
         <Field label="Firebase Project (target)">
           <select value={firebaseProjectId}
                   onChange={(e) => setFirebaseProjectId(e.target.value)}
                   className="w-full h-9 rounded-md border border-brand-line px-2 text-sm bg-white"
                   data-testid={`provision-project-select-${platform}`}>
             {projects.map((p) => (
-              <option key={p.id} value={p.id} disabled={p.apps_provisioned >= p.max_apps}>
+              <option key={p.id} value={p.id}
+                      disabled={!isReprovision && p.apps_provisioned >= p.max_apps}>
                 {p.name} ({p.apps_provisioned}/{p.max_apps})
               </option>
             ))}
           </select>
         </Field>
         <Field label={platform === "android" ? "Package Name (optional)" : "Bundle ID (optional)"}
-               hint="Leave blank to derive from the tenant slug.">
+               hint={isReprovision
+                 ? "Must match the existing app; leave prefilled unless changing."
+                 : "Leave blank to derive from the tenant slug."}>
           <Input value={packageOrBundle} onChange={(e) => setPackageOrBundle(e.target.value.trim())} placeholder="in.localappstore.fieldcrm.<slug>" />
         </Field>
         {result && !result.ok && (
@@ -579,12 +610,19 @@ function ProvisionModal({ platform, projects, tenantId, onClose, onSaved }) {
             <strong>Error:</strong> {result.result?.error}
           </div>
         )}
+        {result && result.ok && result.reused && (
+          <div className="text-xs text-green-700 bg-green-50 p-2 rounded">
+            <strong>Success:</strong> existing app located on Firebase — latest
+            config re-downloaded and stored.
+          </div>
+        )}
         <div className="flex justify-end gap-2 pt-1">
           <button onClick={onClose} className="btn-secondary">Close</button>
           <button onClick={provision} disabled={busy || !firebaseProjectId}
                   className="btn-primary inline-flex items-center gap-2"
                   data-testid={`provision-submit-${platform}`}>
-            {busy ? <Loader2 className="animate-spin" size={14} /> : <Flame size={14} />} Provision
+            {busy ? <Loader2 className="animate-spin" size={14} /> : <Flame size={14} />}
+            {isReprovision ? "Re-provision" : "Provision"}
           </button>
         </div>
       </div>
