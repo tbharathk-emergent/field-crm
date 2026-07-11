@@ -104,8 +104,9 @@ def _parse_args() -> argparse.Namespace:
     ap.add_argument("--version", help="Marketing version (e.g. 1.2.3)")
     ap.add_argument("--version-code", type=int, dest="version_code",
                     help="Integer build number (e.g. 41)")
-    ap.add_argument("--output", choices=["apk", "aab", "prep"], default="apk",
-                    help="Android only. apk (debug, sideload) | aab (release) | prep (no compile)")
+    ap.add_argument("--output", choices=["apk", "aab", "archive", "ipa", "prep"], default="apk",
+                    help="Android: apk (debug) | aab (release) | prep (no compile). "
+                         "iOS: archive (.xcarchive) | ipa (signed IPA) | prep (default).")
     ap.add_argument("--release", action="store_true",
                     help="Android only. With --output apk, produces a release-signed APK "
                          "(uses ANDROID_KEYSTORE_*). Ignored for --output aab (always release).")
@@ -289,14 +290,19 @@ def cmd_build_tenant(backend_url: str, args: argparse.Namespace) -> int:
         )
         artifact = android_mod.apply_all(m, p, splash_source=splash_source)
     else:
+        # iOS: default to "prep" unless user explicitly asked for archive/ipa.
+        # We accept "apk"/"aab" via argparse but coerce them to "prep" for iOS
+        # so the shared --output flag is forgiving on platform mismatch.
+        ios_output = args.output if args.output in ("archive", "ipa", "prep") else "prep"
         p = ios_mod.IosBuildParams(
             project_root=out_root,
             bundle_id=bundle_id,
             app_name=app_name,
             version_name=args.version,
             version_code=args.version_code,
+            output=ios_output,
         )
-        ios_mod.apply_all(m, p)
+        artifact = ios_mod.apply_all(m, p)
 
     # -------- Done --------
     section("Build complete")
@@ -322,7 +328,13 @@ def cmd_build_tenant(backend_url: str, args: argparse.Namespace) -> int:
                 next_cmd = "bundleRelease"
             print(f"  Next step   : cd {out_root}/android && ./gradlew {next_cmd}")
     else:
-        print(f"  Next step   : Open {out_root}/ios/App/App.xcworkspace on your Mac in Xcode")
+        if artifact:
+            print(f"  🎯 Artifact : {artifact}")
+        else:
+            print(f"  Next steps  :")
+            print(f"    A) CLI build (recommended): cd {out_root} && ./build-ios.sh")
+            print(f"    B) Xcode UI:  open {out_root}/ios/App/App.xcworkspace  →  Product → Archive")
+            print(f"    C) One-shot via build_app.py: rerun with --output ipa")
     print("")
     return 0
 
