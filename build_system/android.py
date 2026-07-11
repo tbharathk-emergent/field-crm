@@ -38,6 +38,7 @@ class AndroidBuildParams:
     version_name: str
     version_code: int
     output: str  # "apk" | "aab" | "prep"
+    release: bool = False  # apk: debug vs release; ignored for aab (always release)
 
 
 # ---------- build.gradle rewrites ----------
@@ -211,8 +212,16 @@ def gradle_build(project_root: Path, output: str) -> Optional[Path]:
         return None
 
     if output == "apk":
-        target = "assembleDebug"
-        artifact_glob = "app/build/outputs/apk/debug/*.apk"
+        if p.release:
+            if not os.environ.get("ANDROID_KEYSTORE_PATH"):
+                log.warning("ANDROID_KEYSTORE_PATH not set — the release APK will be UNSIGNED "
+                            "(app-release-unsigned.apk). Sign it manually with apksigner or "
+                            "set ANDROID_KEYSTORE_PATH in build.env for auto-signing.")
+            target = "assembleRelease"
+            artifact_glob = "app/build/outputs/apk/release/*.apk"
+        else:
+            target = "assembleDebug"
+            artifact_glob = "app/build/outputs/apk/debug/*.apk"
     elif output == "aab":
         if not os.environ.get("ANDROID_KEYSTORE_PATH"):
             log.warning("ANDROID_KEYSTORE_PATH not set — the AAB will be UNSIGNED.")

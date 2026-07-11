@@ -106,6 +106,9 @@ def _parse_args() -> argparse.Namespace:
                     help="Integer build number (e.g. 41)")
     ap.add_argument("--output", choices=["apk", "aab", "prep"], default="apk",
                     help="Android only. apk (debug, sideload) | aab (release) | prep (no compile)")
+    ap.add_argument("--release", action="store_true",
+                    help="Android only. With --output apk, produces a release-signed APK "
+                         "(uses ANDROID_KEYSTORE_*). Ignored for --output aab (always release).")
 
     ap.add_argument("--backend-url", default=None,
                     help="Override API URL (default from env: API_BASE_URL)")
@@ -282,6 +285,7 @@ def cmd_build_tenant(backend_url: str, args: argparse.Namespace) -> int:
             version_name=args.version,
             version_code=args.version_code,
             output=args.output,
+            release=args.release,
         )
         artifact = android_mod.apply_all(m, p, splash_source=splash_source)
     else:
@@ -312,7 +316,10 @@ def cmd_build_tenant(backend_url: str, args: argparse.Namespace) -> int:
         if artifact:
             print(f"  🎯 Artifact : {artifact}")
         else:
-            next_cmd = "assembleDebug" if args.output == "apk" else "bundleRelease"
+            if args.output == "apk":
+                next_cmd = "assembleRelease" if args.release else "assembleDebug"
+            else:
+                next_cmd = "bundleRelease"
             print(f"  Next step   : cd {out_root}/android && ./gradlew {next_cmd}")
     else:
         print(f"  Next step   : Open {out_root}/ios/App/App.xcworkspace on your Mac in Xcode")
