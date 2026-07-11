@@ -302,7 +302,7 @@ def cmd_build_tenant(backend_url: str, args: argparse.Namespace) -> int:
             version_code=args.version_code,
             output=ios_output,
         )
-        artifact = ios_mod.apply_all(m, p)
+        artifact = ios_mod.apply_all(m, p, splash_source=splash_source)
 
     # -------- Done --------
     section("Build complete")

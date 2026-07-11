@@ -100,10 +100,20 @@ def patch_info_plist(p: IosBuildParams) -> None:
     modes = set(data.get("UIBackgroundModes", []) or [])
     modes.add("remote-notification")
     data["UIBackgroundModes"] = sorted(modes)
+    # Disable Firebase's UIApplicationDelegate method swizzling. When Firebase
+    # swizzles, it intercepts `didRegisterForRemoteNotificationsWithDeviceToken`
+    # BEFORE Capacitor's PushNotifications plugin gets it — which silently
+    # breaks the `registration` event on iOS and the permission dialog never
+    # completes its round-trip. With this = NO we take manual control and
+    # forward the APNs token to FCM via `Messaging.messaging().apnsToken =
+    # deviceToken` inside AppDelegate (see patch_app_delegate).
+    # Ref: https://firebase.google.com/docs/cloud-messaging/ios/client
+    data["FirebaseAppDelegateProxyEnabled"] = False
     with info.open("wb") as f:
         plistlib.dump(data, f)
     log.info(f"Patched Info.plist: display='{p.app_name}' "
-             f"v{p.version_name} build {p.version_code}")
+             f"v{p.version_name} build {p.version_code} "
+             f"FirebaseAppDelegateProxyEnabled=NO")
 
 
 # ---------- GoogleService-Info.plist ----------
@@ -198,7 +208,7 @@ def patch_app_delegate(project_root: Path) -> bool:
         if re.search(register_pat, content):
             content = re.sub(
                 register_pat,
-                r"\1\n        Messaging.messaging().apnsToken = deviceToken   " + APPDELEGATE_MARKER,
+                r"\1\n        Messaging.messaging().apnsToken = deviceToken\n        NSLog(\"[push] APNs token → FCM bridged (\\(deviceToken.count) bytes)\")   " + APPDELEGATE_MARKER,
                 content, count=1,
             )
         else:
@@ -208,6 +218,14 @@ def patch_app_delegate(project_root: Path) -> bool:
                 "    func application(_ application: UIApplication,\n"
                 "                     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {\n"
                 "        Messaging.messaging().apnsToken = deviceToken\n"
+                "        NSLog(\"[push] APNs token → FCM bridged (\\(deviceToken.count) bytes)\")\n"
+                "    }\n"
+                "\n"
+                "    func application(_ application: UIApplication,\n"
+                "                     didFailToRegisterForRemoteNotificationsWithError error: Error) {\n"
+                "        // Surfaces in Console.app / Xcode device log so we can\n"
+                "        // diagnose provisioning-profile / entitlement issues.\n"
+                "        NSLog(\"[push] APNs registration FAILED: \\(error.localizedDescription)\")\n"
                 "    }\n"
             )
             # Find last `}` in the file and inject before it.
@@ -215,8 +233,65 @@ def patch_app_delegate(project_root: Path) -> bool:
             if last_brace > 0:
                 content = content[:last_brace] + inject + content[last_brace:]
 
+    # 4. Also ensure didFailToRegisterForRemoteNotificationsWithError is present
+    #    even if didRegister was already implemented pre-injection.
+    if "didFailToRegisterForRemoteNotificationsWithError" not in content:
+        fail_inject = (
+            "\n    " + APPDELEGATE_MARKER + " (fail handler)\n"
+            "    func application(_ application: UIApplication,\n"
+            "                     didFailToRegisterForRemoteNotificationsWithError error: Error) {\n"
+            "        NSLog(\"[push] APNs registration FAILED: \\(error.localizedDescription)\")\n"
+            "    }\n"
+        )
+        last_brace = content.rfind("}")
+        if last_brace > 0:
+            content = content[:last_brace] + fail_inject + content[last_brace:]
+
     ad.write_text(content)
     log.info(f"Patched {ad}: FirebaseApp.configure + APNs→FCM bridge")
+    return True
+
+
+# ---------- iOS: Splash image install ----------
+def install_splash_ios(project_root: Path, splash_source: Path) -> bool:
+    """Install the tenant-branded splash into iOS Assets.xcassets/Splash.imageset.
+
+    Capacitor's default iOS project uses a LaunchScreen.storyboard that
+    references an Image named "Splash" from the asset catalog. If we don't
+    populate that imageset, the storyboard falls back to the stock
+    black-on-white Capacitor logo — hence the "tenant logo missing from
+    splash screen" bug.
+
+    We write the 2732×2732 PNG at @1x/@2x/@3x (Capacitor's storyboard picks
+    whichever fits the device). All three point at the same source PNG so
+    the tenant logo shows crisp on every model.
+    """
+    if not splash_source.exists():
+        log.warning(f"Splash source {splash_source} missing — skipping iOS splash install")
+        return False
+    splash_set = (project_root / "ios" / "App" / "App" /
+                  "Assets.xcassets" / "Splash.imageset")
+    if not splash_set.parent.exists():
+        log.warning(f"{splash_set.parent} missing — iOS project not scaffolded, "
+                    "skipping splash install. Run on macOS after `cap add ios`.")
+        return False
+    splash_set.mkdir(parents=True, exist_ok=True)
+    # Copy the same PNG at three scales. iOS asset catalog treats them as
+    # rasterized copies; Capacitor SplashScreen plugin uses CENTER_CROP.
+    for scale_suffix in ("", "@2x", "@3x"):
+        shutil.copy(splash_source, splash_set / f"splash{scale_suffix}.png")
+    contents = {
+        "images": [
+            {"idiom": "universal", "filename": "splash.png",     "scale": "1x"},
+            {"idiom": "universal", "filename": "splash@2x.png",  "scale": "2x"},
+            {"idiom": "universal", "filename": "splash@3x.png",  "scale": "3x"},
+        ],
+        "info": {"version": 1, "author": "build_app.py"},
+    }
+    (splash_set / "Contents.json").write_text(
+        __import__("json").dumps(contents, indent=2)
+    )
+    log.info(f"Installed iOS splash → {splash_set}")
     return True
 
 
@@ -348,7 +423,8 @@ def xcodebuild_archive(project_root: Path, p: IosBuildParams) -> Optional[Path]:
 
 
 # ---------- Orchestration ----------
-def apply_all(m: BuildManifest, p: IosBuildParams) -> Optional[Path]:
+def apply_all(m: BuildManifest, p: IosBuildParams,
+              splash_source: Optional[Path] = None) -> Optional[Path]:
     section("iOS: applying tenant branding")
     install_google_service_plist(p.project_root, m)
 
@@ -365,6 +441,12 @@ def apply_all(m: BuildManifest, p: IosBuildParams) -> Optional[Path]:
     # Firebase bridging in AppDelegate (works whether on macOS or Linux —
     # AppDelegate.swift is created by `cap add ios`, which may be Linux-scaffolded).
     patch_app_delegate(p.project_root)
+
+    # Install tenant-branded splash into Assets.xcassets/Splash.imageset so
+    # LaunchScreen.storyboard renders the tenant logo instead of the stock
+    # Capacitor placeholder.
+    if splash_source is not None:
+        install_splash_ios(p.project_root, splash_source)
 
     # Entitlements — write if the App folder exists (i.e. cap add ios worked).
     # `aps-environment` is required for the app to receive push notifications

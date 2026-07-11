@@ -42,6 +42,35 @@ Behaviour on native (Android/iOS):
 On web (PWA):
 - All calls are no-ops (`isNativeRuntime()` returns false). No console errors, no permission prompts.
 
+### On-device diagnostics (Feb 2026)
+
+`pushNotifications.js` emits verbose `[push]` logs at every step, viewable via
+**Safari → Develop → [device] → [app webview] → Console** on iOS or
+**chrome://inspect** on Android. Sample happy-path output:
+
+```
+[push] starting registration flow on ios
+[push] initial permission state: prompt
+[push] requesting permission (OS dialog should appear now)
+[push] permission dialog result: granted
+[push] calling PushNotifications.register() — awaiting APNs/FCM token
+[push] token registered on server: {...}
+```
+
+Failure modes each log a distinct line — e.g. `[push] plugin import failed`
+(dependency missing), `[push] permission not granted: denied` (user tapped
+"Don't Allow"), or `[push] registrationError` (APNs handshake failed —
+check provisioning profile).
+
+On the **iOS native side**, the AppDelegate patch also emits `NSLog`
+entries visible in **Xcode → Devices → [device] → Console** (or
+Console.app):
+
+```
+[push] APNs token → FCM bridged (32 bytes)
+[push] APNs registration FAILED: <error.localizedDescription>
+```
+
 ## Backend
 
 **Files**:
@@ -67,7 +96,10 @@ Tokens are stored with:
    - `import Firebase`
    - `FirebaseApp.configure()` at top of `didFinishLaunchingWithOptions`
    - `Messaging.messaging().apnsToken = deviceToken` inside `didRegisterForRemoteNotificationsWithDeviceToken` — this is THE critical bridge from APNs → FCM
-5. **`pod install`** — runs automatically on macOS after these mutations.
+   - `didFailToRegisterForRemoteNotificationsWithError` — logs the error via `NSLog` so provisioning failures are visible in Console.app / Xcode device log
+5. **`Info.plist`** — sets `FirebaseAppDelegateProxyEnabled = NO`. Without this, Firebase method-swizzling steals APNs delegate callbacks BEFORE Capacitor's PushNotifications plugin sees them → the permission dialog never completes its round-trip and no `registration` event ever fires. See https://firebase.google.com/docs/cloud-messaging/ios/client#method_swizzling_in
+6. **Splash imageset** — `install_splash_ios()` populates `Assets.xcassets/Splash.imageset` at @1x/@2x/@3x with the tenant-branded splash PNG so `LaunchScreen.storyboard` renders the tenant logo instead of the stock Capacitor placeholder.
+7. **`pod install`** — runs automatically on macOS after these mutations.
 
 **Manual step (Xcode, once per project on your Mac):**
 - Open `ios/App/App.xcworkspace` → select the **App** target → **Signing & Capabilities** → click **+ Capability** → add **Push Notifications**. This is required for the provisioning profile to include push. `build_app.py` cannot toggle this via CLI — Xcode owns the capability graph.

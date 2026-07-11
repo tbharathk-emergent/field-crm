@@ -368,3 +368,33 @@ Fully automated per-tenant Capacitor build via `python3 build_app.py`.
 - Backend: unchanged (existing `fcm_service.py` + `/api/push/*` endpoints already solid).
 - Frontend: `lib/pushNotifications.js` (new), `context/AppContext.jsx` (login/logout hooks), `package.json` (deps + webpack-dev-server pin).
 - Build system: `build_system/ios.py` (Firebase pod + AppDelegate patch + env-configurable aps-environment), `build_system/android.py` (POST_NOTIFICATIONS + gradle_build sig refactor).
+
+
+## Phase 10 — iOS Push permission + Splash logo fix (Feb 12, 2026)
+
+**User-reported issues fixed**:
+1. *"iOS does not request notification permission when launched for the first time"* ✅
+2. *"Uploaded tenant logo is not applied to the Splash Screen"* (iOS) ✅
+
+**Root cause #1** — Firebase's default `UIApplicationDelegate` swizzling was intercepting APNs delegate callbacks BEFORE Capacitor's `PushNotifications` plugin could process them. Result: the plugin's internal `register()` promise never resolved and the OS permission dialog never fully completed its round-trip. This is documented but subtle behaviour when Capacitor + Firebase Messaging coexist.
+
+**Fix — `build_system/ios.py`**:
+- `patch_info_plist()` now writes `FirebaseAppDelegateProxyEnabled = NO`. With swizzling disabled, the AppDelegate patch (already present, sets `Messaging.messaging().apnsToken = deviceToken`) takes exclusive ownership of the APNs → FCM bridge.
+- `patch_app_delegate()` additionally injects `didFailToRegisterForRemoteNotificationsWithError` with `NSLog` so on-device APNs failures (bad entitlement, missing provisioning) surface immediately in Console.app / Xcode device log instead of failing silently.
+- New `install_splash_ios()` — copies the tenant-branded 2732×2732 splash PNG into `ios/App/App/Assets.xcassets/Splash.imageset/` at @1x/@2x/@3x with a valid `Contents.json`. This was the missing piece: `LaunchScreen.storyboard` references `Splash` from the asset catalog by name; without an image, it fell back to the stock Capacitor placeholder. Android's equivalent (`install_splash()` → drawable-* folders) already worked.
+- `apply_all()` accepts a `splash_source` kwarg mirroring the Android call site; wired through `build_app.py`.
+
+**Fix — `frontend/src/lib/pushNotifications.js`**:
+- Added verbose `[push]` console logging at every step (initial permission state, request outcome, register call, token receipt) so the on-device webview log tells us exactly where the flow stalls if it stalls.
+
+**Tests**: 6 new pytest cases in `backend/tests/test_ios_push_and_splash_fix.py` — validates Info.plist proxy flag, AppDelegate fail-handler injection, patch idempotency, splash imageset structure + Contents.json, and both guard paths (missing PNG / missing project). **6/6 passing.**
+
+**Docs**: `/app/documentation/push-notifications.md` updated with the new Info.plist requirement + splash imageset flow + on-device diagnostics section.
+
+**Files touched**:
+- `build_system/ios.py` (Info.plist proxy flag, fail handler, splash installer, apply_all signature)
+- `build_app.py` (passes splash_source into iOS apply_all)
+- `frontend/src/lib/pushNotifications.js` (verbose logging)
+- `documentation/push-notifications.md` (updated iOS section + diagnostics)
+- `backend/tests/test_ios_push_and_splash_fix.py` (new)
+

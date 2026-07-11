@@ -60,22 +60,39 @@ function deviceLabel() {
  * On web this is a no-op.
  */
 export async function registerPushNotifications() {
-  if (registering) return;
-  if (!isNativeRuntime()) return;                     // web PWA: skip
+  if (registering) {
+    console.info("[push] already registering, skipping duplicate call");
+    return;
+  }
+  if (!isNativeRuntime()) {
+    console.info("[push] web runtime detected → skip native registration");
+    return;
+  }
   registering = true;
+  const plat = platformLabel();
+  console.info(`[push] starting registration flow on ${plat}`);
   try {
-    const mod = await import("@capacitor/push-notifications");
+    let mod;
+    try {
+      mod = await import("@capacitor/push-notifications");
+    } catch (e) {
+      console.error("[push] plugin import failed — is @capacitor/push-notifications installed?", e);
+      throw e;
+    }
     const { PushNotifications } = mod;
     if (!PushNotifications) throw new Error("PushNotifications plugin missing");
 
     // 1. Check current permission — request if not granted.
     let perm = await PushNotifications.checkPermissions();
+    console.info(`[push] initial permission state: ${perm.receive}`);
     if (perm.receive === "prompt" || perm.receive === "prompt-with-rationale") {
+      console.info("[push] requesting permission (OS dialog should appear now)");
       perm = await PushNotifications.requestPermissions();
+      console.info(`[push] permission dialog result: ${perm.receive}`);
     }
     if (perm.receive !== "granted") {
       // Permission denied — user can re-enable from OS Settings later. No throw.
-      console.info("[push] permission not granted:", perm.receive);
+      console.warn(`[push] permission not granted: ${perm.receive} — pushes disabled until user re-enables in Settings`);
       return;
     }
 
@@ -85,9 +102,10 @@ export async function registerPushNotifications() {
 
     // 3. Register — triggers `registration` (with FCM token on Android, APNs
     //    token on iOS) or `registrationError`.
+    console.info("[push] calling PushNotifications.register() — awaiting APNs/FCM token");
     await PushNotifications.register();
   } catch (err) {
-    console.warn("[push] registration failed:", err?.message || err);
+    console.error("[push] registration failed:", err?.message || err);
   } finally {
     registering = false;
   }
