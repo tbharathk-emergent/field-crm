@@ -33,7 +33,10 @@ import shutil
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "/app")
+# Resolve absolute path of the script so imports + defaults work regardless of
+# the user's current working directory or platform (Linux dev pod vs macOS).
+_SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_SCRIPT_DIR))
 
 from build_system import android as android_mod
 from build_system import assets, capacitor, ios as ios_mod, manifest as manifest_mod
@@ -47,11 +50,21 @@ from build_system.utils import (
 # env-file discovery + argparse
 # --------------------------------------------------------------------------
 def _find_default_env_file() -> Path | None:
-    for cand in (Path("./build.env").resolve(),
+    """Look for build.env next to this script, then at CWD, then /app."""
+    for cand in (_SCRIPT_DIR / "build.env",
+                 Path.cwd() / "build.env",
                  Path("/app/build.env")):
         if cand.exists():
             return cand
     return None
+
+
+def _resolve_frontend_dir() -> Path:
+    """Default frontend location: sibling of build_app.py → override via FRONTEND_DIR."""
+    override = os.environ.get("FRONTEND_DIR")
+    if override:
+        return Path(override).expanduser().resolve()
+    return _SCRIPT_DIR / "frontend"
 
 
 def _resolve_backend_url(cli_url: str | None) -> str:
@@ -62,12 +75,13 @@ def _resolve_backend_url(cli_url: str | None) -> str:
         v = os.environ.get(key)
         if v:
             return v.rstrip("/")
-    # Last resort — read from /app/frontend/.env
-    env_file = Path("/app/frontend/.env")
-    if env_file.exists():
-        for line in env_file.read_text().splitlines():
-            if line.startswith("REACT_APP_BACKEND_URL="):
-                return line.split("=", 1)[1].strip().strip('"').rstrip("/")
+    # Last resort — read from frontend/.env sibling of this script
+    for env_file in (_SCRIPT_DIR / "frontend" / ".env",
+                     Path("/app/frontend/.env")):
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                if line.startswith("REACT_APP_BACKEND_URL="):
+                    return line.split("=", 1)[1].strip().strip('"').rstrip("/")
     raise SystemExit(
         "No backend URL — set API_BASE_URL in build.env, or pass --backend-url"
     )
@@ -195,7 +209,20 @@ def cmd_build_tenant(backend_url: str, args: argparse.Namespace) -> int:
     section(f"2/6 Preparing project at {out_root}")
 
     # Web bundle: rebuild React with tenant-specific env baked in.
-    frontend_dir = Path(os.environ.get("FRONTEND_DIR", "/app/frontend"))
+    frontend_dir = _resolve_frontend_dir()
+    if not frontend_dir.exists():
+        raise SystemExit(
+            f"Frontend directory not found: {frontend_dir}\n"
+            f"  → Set FRONTEND_DIR in build.env to the path of your React app "
+            f"(the folder that contains package.json + src/).\n"
+            f"  → e.g. FRONTEND_DIR=/Users/you/…/field-crm/frontend"
+        )
+    if not (frontend_dir / "package.json").exists():
+        raise SystemExit(
+            f"{frontend_dir} does not look like a React app "
+            f"(no package.json). Set FRONTEND_DIR correctly in build.env."
+        )
+    log.info(f"Frontend  : {frontend_dir}")
     web_env = {
         "REACT_APP_BACKEND_URL": os.environ.get("API_BASE_URL", backend_url),
     }
