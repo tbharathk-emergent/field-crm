@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { Plus, ExternalLink, Pencil } from "lucide-react";
+import { Plus, ExternalLink, Pencil, Copy, Upload as UploadIcon, Loader2, Flame, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,21 +14,32 @@ import { Switch } from "@/components/ui/switch";
 
 const BUSINESSES = ["Agriculture", "FMCG", "Pharma", "Manufacturing", "Service", "Other"];
 const LANGS = ["en", "hi", "te", "ta", "kn", "mr"];
+const ROOT_DOMAIN = process.env.REACT_APP_ROOT_DOMAIN || "fieldcrm.localappstore.in";
+
+/** Build the tenant's subdomain URL (Phase 9). */
+const tenantUrl = (slug) => `https://${slug}.${ROOT_DOMAIN}`;
+const privacyUrl = (slug) => `${tenantUrl(slug)}/legal/privacy`;
 
 export default function Tenants() {
   const [tenants, setTenants] = useState([]);
   const [plans, setPlans] = useState([]);
+  const [fbProjects, setFbProjects] = useState([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
+  const [fbForm, setFbForm] = useState({ mode: "none", firebase_project_id: "", android_app_id: "", ios_app_id: "", android_package: "", ios_bundle: "" });
+  const [savingLogo, setSavingLogo] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const load = async () => {
-    const [t, p] = await Promise.all([
+    const [t, p, fp] = await Promise.all([
       api.get("/super/tenants"),
       api.get("/super/plans"),
+      api.get("/super/firebase-projects").catch(() => ({ data: [] })),
     ]);
     setTenants(t.data);
     setPlans(p.data);
+    setFbProjects(fp.data || []);
   };
 
   useEffect(() => { load(); }, []);
@@ -39,10 +50,15 @@ export default function Tenants() {
     plan_id: "", primary: "#2C5E43", secondary: "#D35400",
     customer_label: "Customer", dealer_label: "Dealer",
     default_language: "en", admin_phone: "", admin_name: "",
+    logo_path: "",
   };
 
-  const openCreate = () => { setEditing(null); setForm(blankForm); setOpen(true); };
-  const openEdit = (tn) => {
+  const openCreate = () => {
+    setEditing(null); setForm(blankForm);
+    setFbForm({ mode: "none", firebase_project_id: "", android_app_id: "", ios_app_id: "", android_package: "", ios_bundle: "" });
+    setOpen(true);
+  };
+  const openEdit = async (tn) => {
     setEditing(tn);
     setForm({
       name: tn.name, business_type: tn.business_type, contact_email: tn.contact_email,
@@ -50,23 +66,144 @@ export default function Tenants() {
       plan_status: tn.plan_status, is_active: tn.is_active,
       google_maps_api_key: tn.google_maps_api_key || "",
       order_approval_flow: tn.order_approval_flow || "direct",
+      logo_path: tn.logo_path || "",
     });
+    // Load current Firebase config so the dialog pre-fills
+    try {
+      const r = await api.get(`/super/tenants/${tn.id}/firebase-config`);
+      const cfg = r.data || {};
+      const android = cfg.android || {};
+      const ios = cfg.ios || {};
+      const anyAuto = android.mode === "auto" || ios.mode === "auto";
+      const anyExisting = android.mode === "existing" || ios.mode === "existing";
+      setFbForm({
+        mode: anyAuto ? "auto" : (anyExisting ? "existing" : "none"),
+        firebase_project_id: android.firebase_project_id || ios.firebase_project_id || "",
+        android_app_id: android.app_id || "",
+        ios_app_id: ios.app_id || "",
+        android_package: android.package_name || "",
+        ios_bundle: ios.package_name || "",
+      });
+    } catch {
+      setFbForm({ mode: "none", firebase_project_id: "", android_app_id: "", ios_app_id: "", android_package: "", ios_bundle: "" });
+    }
     setOpen(true);
   };
 
-  const submit = async () => {
+  const uploadLogo = async (file) => {
+    if (!file) return;
+    setSavingLogo(true);
     try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("purpose", "tenant_logo");
+      const r = await api.post("/files/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      setForm((f) => ({ ...f, logo_path: r.data.path }));
+      toast.success("Logo uploaded");
+    } catch (e) {
+      toast.error("Logo upload failed");
+    } finally {
+      setSavingLogo(false);
+    }
+  };
+
+  /**
+   * Persist Firebase config for the tenant after create/update saves.
+   * - mode=none  → no-op.
+   * - mode=existing → PUT the pasted app_ids for android + ios (independently).
+   * - mode=auto → call /firebase-config/provision for android + ios.
+   */
+  const persistFirebase = async (tenantId) => {
+    if (fbForm.mode === "none") return;
+    if (fbForm.mode === "existing") {
+      const calls = [];
+      if (fbForm.android_app_id) {
+        calls.push(api.put(`/super/tenants/${tenantId}/firebase-config`, {
+          platform: "android",
+          firebase_project_id: fbForm.firebase_project_id || null,
+          app_id: fbForm.android_app_id,
+          package_name: fbForm.android_package || null,
+        }));
+      }
+      if (fbForm.ios_app_id) {
+        calls.push(api.put(`/super/tenants/${tenantId}/firebase-config`, {
+          platform: "ios",
+          firebase_project_id: fbForm.firebase_project_id || null,
+          app_id: fbForm.ios_app_id,
+          package_name: fbForm.ios_bundle || null,
+        }));
+      }
+      await Promise.all(calls);
+      return;
+    }
+    if (fbForm.mode === "auto") {
+      if (!fbForm.firebase_project_id) {
+        toast.error("Pick a Firebase project for auto-provisioning");
+        throw new Error("missing_firebase_project");
+      }
+      // Provision both platforms sequentially — the API returns even on failure.
+      const results = [];
+      for (const platform of ["android", "ios"]) {
+        try {
+          const r = await api.post(`/super/tenants/${tenantId}/firebase-config/provision`, {
+            platform, firebase_project_id: fbForm.firebase_project_id,
+          });
+          results.push({ platform, ok: r.data.ok, error: r.data.result?.error });
+        } catch (e) {
+          results.push({ platform, ok: false, error: e?.response?.data?.detail || "Failed" });
+        }
+      }
+      const failed = results.filter((r) => !r.ok);
+      if (failed.length) {
+        toast.warning(`Firebase auto-provision partial: ${failed.map((f) => `${f.platform}: ${typeof f.error === "object" ? f.error?.message : f.error}`).join("; ").slice(0, 200)}`);
+      } else {
+        toast.success("Firebase apps auto-provisioned");
+      }
+      return;
+    }
+  };
+
+  const submit = async () => {
+    setSubmitting(true);
+    try {
+      let tenantId = editing?.id;
       if (editing) {
         await api.patch(`/super/tenants/${editing.id}`, form);
         toast.success("Tenant updated");
       } else {
-        await api.post("/super/tenants", form);
+        const r = await api.post("/super/tenants", form);
+        tenantId = r.data.id;
         toast.success("Tenant created");
+      }
+      // Persist Firebase after the tenant exists (needed for provisioning IDs).
+      if (tenantId) {
+        try { await persistFirebase(tenantId); }
+        catch (e) { /* toasts already shown by persistFirebase */ }
       }
       setOpen(false);
       load();
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Failed");
+      const d = e?.response?.data?.detail;
+      toast.error(typeof d === "object" ? (d.message || d.code) : (d || "Failed"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const copyPrivacy = async (slug) => {
+    const url = privacyUrl(slug);
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Privacy URL copied");
+    } catch {
+      // Fallback for insecure contexts / older browsers
+      const ta = document.createElement("textarea");
+      ta.value = url;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); toast.success("Privacy URL copied"); }
+      catch { toast.error("Copy failed — long-press to copy"); }
+      finally { document.body.removeChild(ta); }
     }
   };
 
@@ -92,7 +229,11 @@ export default function Tenants() {
               </div>
               <div className="min-w-0 flex-1">
                 <div className="font-display font-semibold truncate">{tn.name}</div>
-                <div className="text-xs text-brand-mute">/t/{tn.slug}</div>
+                <a href={tenantUrl(tn.slug)} target="_blank" rel="noreferrer"
+                   className="text-xs text-brand-primary hover:underline truncate block"
+                   data-testid={`tenant-subdomain-${tn.slug}`}>
+                  {tn.slug}.{ROOT_DOMAIN}
+                </a>
                 <div className="flex gap-1 flex-wrap mt-1">
                   <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-brand-primary/10 text-brand-primary font-semibold">
                     {tn.business_type}
@@ -140,7 +281,12 @@ export default function Tenants() {
               <button data-testid={`edit-tenant-${tn.slug}`} onClick={() => openEdit(tn)} className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg border border-brand-line text-sm hover:bg-brand-bg">
                 <Pencil size={14} /> Edit
               </button>
-              <a href={`/t/${tn.slug}`} target="_blank" rel="noreferrer"
+              <button data-testid={`copy-privacy-${tn.slug}`} onClick={() => copyPrivacy(tn.slug)}
+                      className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg border border-brand-line text-sm hover:bg-brand-bg"
+                      title="Copy Privacy Policy URL">
+                <Copy size={14} /> Privacy URL
+              </button>
+              <a href={tenantUrl(tn.slug)} target="_blank" rel="noreferrer"
                  className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg bg-brand-primary/10 text-brand-primary text-sm font-medium hover:bg-brand-primary/20">
                 <ExternalLink size={14} /> Visit
               </a>
@@ -251,9 +397,136 @@ export default function Tenants() {
               </>
             )}
           </div>
+
+          {/* Logo (Phase 9) */}
+          <div className="border-t border-brand-line pt-4 mt-1">
+            <Label className="text-xs uppercase tracking-widest text-brand-mute">Tenant Logo</Label>
+            <div className="mt-2 flex items-center gap-3">
+              {form.logo_path ? (
+                <img
+                  data-testid="tenant-logo-preview"
+                  src={form.logo_path.startsWith("http") ? form.logo_path : `/api/files/view?path=${encodeURIComponent(form.logo_path)}`}
+                  alt="logo preview"
+                  className="w-14 h-14 rounded-xl object-cover border border-brand-line bg-white"
+                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                />
+              ) : (
+                <div className="w-14 h-14 rounded-xl bg-neutral-100 flex items-center justify-center text-brand-mute text-xs">
+                  No logo
+                </div>
+              )}
+              <label className="btn-secondary inline-flex items-center gap-2 cursor-pointer" data-testid="tenant-logo-upload-btn">
+                {savingLogo ? <Loader2 size={14} className="animate-spin" /> : <UploadIcon size={14} />}
+                {form.logo_path ? "Replace logo" : "Upload logo"}
+                <input type="file" accept="image/*" className="hidden"
+                       onChange={(e) => uploadLogo(e.target.files?.[0])}
+                       data-testid="tenant-logo-file" />
+              </label>
+              {form.logo_path && (
+                <button type="button" onClick={() => setForm({ ...form, logo_path: "" })}
+                        className="text-xs text-brand-mute hover:text-red-600 inline-flex items-center gap-1">
+                  <X size={12} /> Clear
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Firebase configuration (Phase 9) */}
+          <div className="border-t border-brand-line pt-4 mt-1">
+            <Label className="text-xs uppercase tracking-widest text-brand-mute inline-flex items-center gap-1.5">
+              <Flame size={12} /> Firebase Configuration
+            </Label>
+            <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
+              {[
+                { k: "none", label: "None / Later" },
+                { k: "existing", label: "Existing Firebase" },
+                { k: "auto", label: "Auto-provision" },
+              ].map((opt) => (
+                <button key={opt.k} type="button"
+                        data-testid={`fb-mode-${opt.k}`}
+                        onClick={() => setFbForm({ ...fbForm, mode: opt.k })}
+                        className={
+                          "px-3 py-2 rounded-lg border text-xs transition " +
+                          (fbForm.mode === opt.k
+                            ? "border-brand-primary bg-brand-primary/10 text-brand-primary font-medium"
+                            : "border-brand-line hover:bg-brand-bg")
+                        }>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {(fbForm.mode === "existing" || fbForm.mode === "auto") && (
+              <div className="mt-3">
+                <Label className="text-xs">Firebase Project</Label>
+                <select
+                  data-testid="fb-project-select"
+                  value={fbForm.firebase_project_id}
+                  onChange={(e) => setFbForm({ ...fbForm, firebase_project_id: e.target.value })}
+                  className="w-full h-9 rounded-md border border-brand-line px-2 text-sm bg-white mt-1"
+                >
+                  <option value="">— select a Firebase project —</option>
+                  {fbProjects.map((p) => (
+                    <option key={p.id} value={p.id} disabled={p.apps_provisioned >= p.max_apps}>
+                      {p.name} ({p.apps_provisioned}/{p.max_apps})
+                    </option>
+                  ))}
+                </select>
+                {fbProjects.length === 0 && (
+                  <div className="text-[11px] text-amber-700 mt-1">
+                    No Firebase projects yet. Add one from{" "}
+                    <a href="/super-admin/cloud" target="_blank" rel="noreferrer" className="underline">Cloud → Firebase Projects</a>.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {fbForm.mode === "existing" && (
+              <div className="mt-3 grid sm:grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Android App ID</Label>
+                  <Input data-testid="fb-android-app-id"
+                         value={fbForm.android_app_id}
+                         onChange={(e) => setFbForm({ ...fbForm, android_app_id: e.target.value.trim() })}
+                         placeholder="1:1234:android:abcdef" />
+                </div>
+                <div>
+                  <Label className="text-xs">Android Package Name</Label>
+                  <Input data-testid="fb-android-package"
+                         value={fbForm.android_package}
+                         onChange={(e) => setFbForm({ ...fbForm, android_package: e.target.value.trim() })}
+                         placeholder="in.localappstore.fieldcrm.<slug>" />
+                </div>
+                <div>
+                  <Label className="text-xs">iOS App ID</Label>
+                  <Input data-testid="fb-ios-app-id"
+                         value={fbForm.ios_app_id}
+                         onChange={(e) => setFbForm({ ...fbForm, ios_app_id: e.target.value.trim() })}
+                         placeholder="1:1234:ios:abcdef" />
+                </div>
+                <div>
+                  <Label className="text-xs">iOS Bundle ID</Label>
+                  <Input data-testid="fb-ios-bundle"
+                         value={fbForm.ios_bundle}
+                         onChange={(e) => setFbForm({ ...fbForm, ios_bundle: e.target.value.trim() })}
+                         placeholder="in.localappstore.fieldcrm.<slug>" />
+                </div>
+              </div>
+            )}
+
+            {fbForm.mode === "auto" && (
+              <div className="mt-3 text-xs bg-blue-50 border border-blue-200 rounded-lg p-3 text-blue-900">
+                <strong>Auto-provisioning</strong> will create one Android + one iOS app on the selected Firebase project once you save. App IDs and config files are generated by Firebase and stored on this tenant.
+              </div>
+            )}
+          </div>
+
           <DialogFooter>
             <button onClick={() => setOpen(false)} className="px-4 py-2 rounded-lg border border-brand-line">Cancel</button>
-            <button data-testid="save-tenant-btn" onClick={submit} className="btn-primary">{editing ? "Save" : "Create"}</button>
+            <button data-testid="save-tenant-btn" onClick={submit} disabled={submitting} className="btn-primary inline-flex items-center gap-2">
+              {submitting && <Loader2 size={14} className="animate-spin" />}
+              {editing ? "Save" : "Create"}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

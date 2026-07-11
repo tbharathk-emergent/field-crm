@@ -470,6 +470,7 @@ class TenantIn(BaseModel):
     default_language: str = "en"
     admin_phone: Optional[str] = None
     admin_name: Optional[str] = None
+    logo_path: Optional[str] = None  # Phase 9 — uploaded via /api/files/upload before this call
 
 
 @api.post("/super/tenants")
@@ -484,6 +485,7 @@ async def create_tenant(payload: TenantIn, user: dict = Depends(require_roles("s
         contact_phone=payload.contact_phone,
         address=payload.address,
         plan_id=payload.plan_id,
+        logo_path=payload.logo_path,
         plan_status="active",
         trial_ends_at=(datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
         theme=TenantTheme(primary=payload.primary, secondary=payload.secondary,
@@ -524,6 +526,7 @@ class TenantUpdateIn(BaseModel):
     order_approval_flow: Optional[str] = None
     catalog_mode: Optional[str] = None
     features: Optional[Dict[str, bool]] = None
+    logo_path: Optional[str] = None  # Phase 9
 
 
 @api.patch("/super/tenants/{tenant_id}")

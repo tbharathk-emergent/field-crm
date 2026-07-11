@@ -1,0 +1,23 @@
+{
+  "summary": "Phase 9 tenant customization (logo, subdomain URL, Firebase in create/update, privacy-URL copy) — FULL PASS. Backend: 5/5 pytest tests pass (tenant-resolve returns root_domain=fieldcrm.localappstore.in with matched_by=subdomain and tenant.slug=demo; /api/super/tenants requires super-admin — tenant_admin gets 403; PUT /api/super/tenants/{id}/firebase-config for platform=android persists app_id with mode=existing and GET reflects it; DELETE /api/super/tenants/{id}/firebase-config/android cleans up; PATCH /api/super/tenants/{id} accepts logo_path and persists). Frontend: 34/34 checks pass — tenant card shows subdomain link 'demo.fieldcrm.localappstore.in' via data-testid=tenant-subdomain-demo; copy-privacy-demo button copies exactly 'https://demo.fieldcrm.localappstore.in/legal/privacy' to clipboard (verified via navigator.clipboard.readText) and shows 'Privacy URL copied' toast (no [object Object]); Create Tenant dialog has tenant-slug, tenant-name, tenant-logo-upload-btn with hidden tenant-logo-file input, and fb-mode-{none|existing|auto} tri-state; existing-mode expands fb-project-select + fb-android-app-id + fb-android-package + fb-ios-app-id + fb-ios-bundle; auto-mode collapses to only fb-project-select plus the 'Auto-provisioning' blue banner; none-mode hides all FB fields; logo upload with a tiny PNG buffer shows 'Logo uploaded' toast and tenant-logo-preview <img>; Edit Tenant on demo prefills name='Akshara Agro', accepts switch to existing + android_app_id save, shows 'Tenant updated' toast, and on reopen the fb-mode-existing button is visually selected (has bg-brand-primary class) with fb-android-app-id prefilled to '1:1234:android:test'. Regression checks pass: Cloud page still has AWS + Firebase Projects + Tenants tabs. Cleanup DELETE returned 200. Tests use fc_token/fc_user localStorage keys derived from /app/frontend/src/context/AppContext.jsx.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phase9_tenant_customization.py",
+    "/app/test_reports/pytest/phase9.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Tenants.jsx is 535 lines — dialog + form + FB tri-state is getting dense; consider extracting FirebaseConfigSection and LogoUploadSection subcomponents for maintainability.",
+    "openEdit calls GET /firebase-config even when the tenant may have none; response might be 404. It's wrapped in try/catch so behavior is safe, but a check on response existence would be cleaner.",
+    "persistFirebase auto-mode toast concatenates errors; if one platform succeeds and the other fails, the tenant is left in mixed state. Consider surfacing per-platform status in the update dialog."
+  ],
+  "updated_files": ["/app/backend/tests/test_phase9_tenant_customization.py"],
+  "success_rate": {"backend": "100% (5/5)", "frontend": "100% (34/34)"},
+  "test_credentials": "Super Admin 9858558555/557725; Reviewer 9898989898/123456; Demo Tenant Admin 9000000001/123456 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Temporarily set demo tenant's android firebase-config to app_id=1:1234:android:test then DELETE-cleaned it. Also PATCH set logo_path='/uploads/test-logo.png' and restored to original.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Frontend uses localStorage keys 'fc_token' and 'fc_user' (see AppContext.jsx). Programmatic login: POST /api/auth/request-otp then /api/auth/verify-otp with {phone,otp,tenant_slug?} — response is {token, user, tenant}. OTP input on /login is a 6-cell shadcn InputOTP; direct typing via keyboard.type doesn't work reliably in Playwright. Prefer the localStorage-injection approach used here. tenant-resolve returns matched_by='subdomain' when host matches <slug>.<ROOT_DOMAIN>. Firebase-config PUT-then-GET works; the response schema is {android:{...}, ios:{...}} with fields app_id, package_name, firebase_project_id, mode. Demo tenant may accumulate firebase-config across test runs — always DELETE /api/super/tenants/{demo_id}/firebase-config/{platform} at the end.",
+  "rca of the issue": "n/a — all four user-requested features (logo upload, tenant name in create/update, subdomain URL format on cards, Privacy URL copy, and Firebase config in create/update with tri-state and pre-fill) are correctly implemented and verified end-to-end."
+}
