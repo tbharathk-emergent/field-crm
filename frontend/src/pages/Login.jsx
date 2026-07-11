@@ -14,14 +14,28 @@ const SUPER_ADMIN_PHONE = "9858558555";
  * `detail: { code, message }` (Phase 2/3/4 structured errors). Sonner
  * cannot render an object — it prints "[object Object]" — so we always
  * squash to a user-readable string here.
+ *
+ * Special-cases 502/503/504 & network failures with a friendlier warm-up
+ * message; those are almost always the preview container cold-starting.
  */
 function errMsg(e, fallback) {
+  const status = e?.response?.status;
+  if (status === 502 || status === 503 || status === 504) {
+    return "Server is warming up. Please try again in a few seconds.";
+  }
+  if (!e?.response) {
+    // Network failure / timeout / CORS block → no response object at all.
+    return "Can't reach the server right now. Check your connection and try again.";
+  }
   const d = e?.response?.data?.detail;
   if (!d) return fallback;
   if (typeof d === "string") return d;
   if (typeof d === "object") return d.message || d.code || fallback;
   return fallback;
 }
+
+/** Sleep helper for retry with backoff. */
+const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export default function Login() {
   const { slug } = useParams();
@@ -59,10 +73,23 @@ export default function Login() {
   const sendOtp = async () => {
     if (!phone || phone.length < 6) return toast.error("Enter valid phone");
     setLoading(true);
+    // Retry once on 502/503/504 or network errors — preview containers cold-start
+    // through Cloudflare and can 502 for the first ~2-5 seconds after a scale-up.
+    const attempt = async () => api.post("/auth/request-otp", {
+      phone, tenant_slug: slug, channel, role_hint: roleHint,
+    });
+    let res;
     try {
-      const res = await api.post("/auth/request-otp", {
-        phone, tenant_slug: slug, channel, role_hint: roleHint,
-      });
+      try {
+        res = await attempt();
+      } catch (e) {
+        const status = e?.response?.status;
+        const transient = !e?.response || status === 502 || status === 503 || status === 504;
+        if (!transient) throw e;
+        toast.info("Server warming up… retrying");
+        await _sleep(1500);
+        res = await attempt();
+      }
       setMockOtp(res.data.mock_otp);
       setStep("otp");
       setResendIn(30);

@@ -1,0 +1,24 @@
+{
+  "summary": "Verified the 'Failed to send OTP' bugfix end-to-end. Backend 7/7 pytest cases pass on the live URL: /api/health OK, super-admin request-otp returns 200 with is_super_admin=true and mock_otp=557725, verify-otp gives role=super_admin, wrong-OTP returns 401 with string 'Invalid OTP', reviewer (9898989898/123456) and demo tenant admin (9000000001/123456+demo) both authenticate correctly. Frontend UI test on /login: typed 9858558555 -> Send OTP -> exactly ONE POST /api/auth/request-otp (200), success toast 'OTP sent via SMS (mock: 557725)', Super Admin Login Detected banner visible, entered 557725 -> Verify -> redirected to /super-admin, dashboard renders. Wrong-OTP path shows readable 'Invalid OTP' toast, never '[object Object]'. Container was warm so retry code path was dormant (validated by inspection of Login.jsx sendOtp at lines 73-106). No cold-start 502 observed during this iteration.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_login_bugfix.py",
+    "/app/test_reports/pytest/iter9_login_bugfix.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Login.jsx sendOtp retry logic looks correct: retries once on !e.response or 502/503/504 after 1.5s pause; final catch surfaces friendly errMsg. errMsg() should be verified to also stringify object detail fields (FastAPI validation errors can return detail as a list of dicts) -- consider extending errMsg to handle Array/object detail to fully eliminate [object Object] risk on any endpoint.",
+    "OTP screen uses a single visual input rendered to look like 6 boxes rather than 6 [maxlength=1] inputs — that's fine, just note for future test selectors."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_login_bugfix.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "See /app/memory/test_credentials.md — Super Admin 9858558555/557725, Reviewer 9898989898/123456, Demo Tenant Admin 9000000001/123456 (slug=demo).",
+  "seed_data_creation": "None. Tests read-only against existing seed.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The 'Failed to send OTP' bug appears to have been a transient Cloudflare 502 during backend cold-start; the current bugfix (retry-once + friendly warm-up message) is in place at /app/frontend/src/pages/Login.jsx sendOtp(). Backend was warm during this test so the retry path was not exercised live. If you want to force it, kill /var/log/supervisor's backend job briefly with `sudo supervisorctl stop backend && sleep 1 && sudo supervisorctl start backend` and hit Send OTP immediately.",
+  "rca of the issue": "Original 'Failed to send OTP' was caused by Cloudflare returning 502 while backend cold-started (uptime 1s at moment of click). Main agent's fix (1) upgraded errMsg() to detect 502/503/504/network and show 'Server is warming up…' and (2) added a single silent retry after 1.5s. Both verified via code inspection; happy-path e2e login remains green."
+}
