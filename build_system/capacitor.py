@@ -72,6 +72,14 @@ def copy_web_bundle(frontend_dir: Path, target: Path,
     env_local = frontend_dir / ".env.local"
     wrote_env_local = False
     try:
+        # First-time UX: install frontend deps if missing so `yarn build` doesn't
+        # fail with `craco: command not found` or similar.
+        node_modules = frontend_dir / "node_modules"
+        if not node_modules.exists():
+            log.info(f"Frontend node_modules missing → running `yarn install` "
+                     f"in {frontend_dir}")
+            run(["yarn", "install"], cwd=frontend_dir)
+
         if env_overrides:
             env_local.write_text(
                 "\n".join(f"{k}={v}" for k, v in env_overrides.items()) + "\n"
