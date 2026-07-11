@@ -106,6 +106,106 @@ def install_google_service_plist(project_root: Path, m: BuildManifest) -> bool:
     return True
 
 
+# ---------- iOS: Firebase Messaging integration ----------
+FIREBASE_POD_MARKER = "# --- Injected by build_app.py: Firebase Messaging ---"
+
+
+def install_firebase_pod(project_root: Path) -> bool:
+    """Insert `pod 'Firebase/Messaging'` into ios/App/Podfile (idempotent).
+
+    Required so the app can register with FCM and receive push notifications
+    on iOS. The `@capacitor/push-notifications` plugin only wires APNs on iOS;
+    Firebase Messaging is what converts APNs tokens → FCM tokens (the ones your
+    backend + Firebase Console send to).
+    """
+    podfile = project_root / "ios" / "App" / "Podfile"
+    if not podfile.exists():
+        log.warning(f"{podfile} missing — cannot inject Firebase Messaging pod. "
+                    "Finish `npx cap add ios` on macOS first.")
+        return False
+    content = podfile.read_text()
+    if FIREBASE_POD_MARKER in content:
+        return True  # already injected
+    # Insert right after the "def capacitor_pods" opening or the first `target`.
+    inject = (f"\n  {FIREBASE_POD_MARKER}\n"
+              f"  pod 'Firebase/Messaging'\n")
+    # Prefer to insert inside the target block that follows `capacitor_pods`.
+    m = re.search(r"(target\s+'App'\s+do)", content)
+    if not m:
+        log.warning("Podfile has no `target 'App' do` block — skipping Firebase pod")
+        return False
+    idx = m.end()
+    new_content = content[:idx] + inject + content[idx:]
+    podfile.write_text(new_content)
+    log.info(f"Added `pod 'Firebase/Messaging'` to {podfile}")
+    return True
+
+
+APPDELEGATE_MARKER = "// --- Injected by build_app.py: Firebase Messaging ---"
+
+
+def patch_app_delegate(project_root: Path) -> bool:
+    """Patch AppDelegate.swift to configure Firebase + forward APNs → FCM.
+
+    Capacitor's default AppDelegate does not know about Firebase. We inject:
+        - `import Firebase`
+        - `FirebaseApp.configure()` inside `didFinishLaunchingWithOptions`
+        - `Messaging.messaging().apnsToken = deviceToken` inside
+          `didRegisterForRemoteNotificationsWithDeviceToken` so the APNs
+          token is bridged to FCM.
+    """
+    ad = project_root / "ios" / "App" / "App" / "AppDelegate.swift"
+    if not ad.exists():
+        log.warning(f"{ad} missing — cannot patch AppDelegate. Finish `cap add ios` on macOS.")
+        return False
+    content = ad.read_text()
+    if APPDELEGATE_MARKER in content:
+        return True  # already patched
+
+    # 1. Ensure `import Firebase`
+    if "import Firebase" not in content:
+        content = re.sub(r"(import UIKit\s*)",
+                         r"\1\nimport Firebase   " + APPDELEGATE_MARKER + "\n",
+                         content, count=1)
+
+    # 2. FirebaseApp.configure() at the top of didFinishLaunching
+    if "FirebaseApp.configure()" not in content:
+        content = re.sub(
+            r"(func application\(_[^{]*didFinishLaunchingWithOptions[^{]*\{)",
+            r"\1\n        FirebaseApp.configure()   " + APPDELEGATE_MARKER,
+            content, count=1,
+        )
+
+    # 3. Bridge APNs token to Firebase Messaging
+    if "Messaging.messaging().apnsToken" not in content:
+        # If the delegate already implements didRegisterForRemoteNotifications, inject inside;
+        # else append a new function to the class.
+        register_pat = r"(func application\(_[^{]*didRegisterForRemoteNotificationsWithDeviceToken[^{]*\{)"
+        if re.search(register_pat, content):
+            content = re.sub(
+                register_pat,
+                r"\1\n        Messaging.messaging().apnsToken = deviceToken   " + APPDELEGATE_MARKER,
+                content, count=1,
+            )
+        else:
+            # Append before the last closing brace of the class.
+            inject = (
+                "\n    " + APPDELEGATE_MARKER + "\n"
+                "    func application(_ application: UIApplication,\n"
+                "                     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {\n"
+                "        Messaging.messaging().apnsToken = deviceToken\n"
+                "    }\n"
+            )
+            # Find last `}` in the file and inject before it.
+            last_brace = content.rfind("}")
+            if last_brace > 0:
+                content = content[:last_brace] + inject + content[last_brace:]
+
+    ad.write_text(content)
+    log.info(f"Patched {ad}: FirebaseApp.configure + APNs→FCM bridge")
+    return True
+
+
 # ---------- macOS native tooling ----------
 def _is_macos() -> bool:
     return sys.platform == "darwin" or platform.system() == "Darwin"
@@ -242,18 +342,28 @@ def apply_all(m: BuildManifest, p: IosBuildParams) -> Optional[Path]:
     # exist to patch. On Linux, `cap add ios` silently no-ops so these are absent.
     if _is_macos():
         cap_sync_ios(p.project_root)
+        # Inject Firebase Messaging pod BEFORE `pod install` so it's fetched.
+        install_firebase_pod(p.project_root)
         pod_install(p.project_root)
 
     patch_pbxproj(p)
     patch_info_plist(p)
+    # Firebase bridging in AppDelegate (works whether on macOS or Linux —
+    # AppDelegate.swift is created by `cap add ios`, which may be Linux-scaffolded).
+    patch_app_delegate(p.project_root)
 
-    # Entitlements — write if the App folder exists (i.e. cap add ios worked)
+    # Entitlements — write if the App folder exists (i.e. cap add ios worked).
+    # `aps-environment` is required for the app to receive push notifications
+    # from APNs. Defaults to "production" (works for both TestFlight and App
+    # Store); override via IOS_APS_ENVIRONMENT=development for pre-release
+    # sandbox APNs testing.
     app_folder = p.project_root / "ios" / "App" / "App"
     if app_folder.exists():
+        aps_env = os.environ.get("IOS_APS_ENVIRONMENT", "production").strip() or "production"
         ent = app_folder / "App.entitlements"
         with ent.open("wb") as f:
-            plistlib.dump({"aps-environment": "production"}, f)
-        log.info(f"Wrote {ent} (aps-environment=production)")
+            plistlib.dump({"aps-environment": aps_env}, f)
+        log.info(f"Wrote {ent} (aps-environment={aps_env})")
 
     # Always emit build-ios.sh so the user has a CLI path.
     _write_build_script(p.project_root, p)

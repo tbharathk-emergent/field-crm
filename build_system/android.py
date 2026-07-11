@@ -175,6 +175,32 @@ def patch_display_name(project_root: Path, app_name: str) -> None:
     log.info(f"Set Android app display name → {app_name}")
 
 
+# ---------- AndroidManifest.xml — push notification permission ----------
+POST_NOTIF_PERM = ('<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />'
+                   '  <!-- Android 13+ notifications: injected by build_app.py -->')
+
+
+def patch_android_manifest(project_root: Path) -> None:
+    """Ensure POST_NOTIFICATIONS is declared (mandatory on Android 13+ / API 33+).
+
+    Also declares the default notification channel so foreground messages are
+    routed correctly by Capacitor's PushNotifications plugin.
+    """
+    manifest = (project_root / "android" / "app" / "src" / "main" /
+                "AndroidManifest.xml")
+    if not manifest.exists():
+        return
+    xml = manifest.read_text()
+    if "android.permission.POST_NOTIFICATIONS" not in xml:
+        xml = re.sub(
+            r"(<manifest[^>]*>)",
+            r"\1\n    " + POST_NOTIF_PERM,
+            xml, count=1,
+        )
+        manifest.write_text(xml)
+        log.info(f"Added POST_NOTIFICATIONS permission to {manifest.name}")
+
+
 # ---------- Splash setup ----------
 def install_splash(project_root: Path, splash_source: Path) -> None:
     """Copy splash.png into every drawable-* density folder."""
@@ -190,16 +216,17 @@ def install_splash(project_root: Path, splash_source: Path) -> None:
 
 
 # ---------- Compile ----------
-def gradle_build(project_root: Path, output: str) -> Optional[Path]:
+def gradle_build(p: AndroidBuildParams) -> Optional[Path]:
     """Run gradle to produce APK (debug) or AAB (release). Returns artifact path.
 
     Silently returns None if `output == 'prep'` or Android SDK is not available.
     """
+    output = p.output
     if output == "prep":
         log.info("Skipping gradle build (output=prep). Open android/ in Android Studio.")
         return None
 
-    android_dir = project_root / "android"
+    android_dir = p.project_root / "android"
     gradlew = android_dir / "gradlew"
     if not gradlew.exists():
         raise BuildError(f"{gradlew} missing — did `cap add android` finish?")
@@ -248,6 +275,7 @@ def apply_all(m: BuildManifest, p: AndroidBuildParams,
     patch_root_build_gradle(p.project_root)
     patch_app_build_gradle(p)
     patch_display_name(p.project_root, p.app_name)
+    patch_android_manifest(p.project_root)
     if splash_source:
         install_splash(p.project_root, splash_source)
-    return gradle_build(p.project_root, p.output)
+    return gradle_build(p)

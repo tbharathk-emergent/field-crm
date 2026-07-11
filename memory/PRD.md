@@ -335,3 +335,36 @@ Fully automated per-tenant Capacitor build via `python3 build_app.py`.
 **Files touched**:
 - Backend: `legal_defaults.py` (new), `server.py` (`/api/public/legal/{kind}` fallback logic).
 - Frontend: `pages/Legal.jsx` (rewrite), `lib/markdown.js` (new), `index.css` (`.legal-prose` styles), `pages/SuperAdmin/Tenants.jsx` (logo + Copy Terms), `pages/Landing.jsx` (footer legal links).
+
+
+## Phase 10 — Push Notifications (Feb 11, 2026)
+
+**Frontend orchestrator** (`/app/frontend/src/lib/pushNotifications.js`):
+- `registerPushNotifications()` — detects native runtime, dynamically imports `@capacitor/push-notifications`, requests permission, wires listeners, calls `PushNotifications.register()`, POSTs `{ token, platform, device_label }` to `/api/push/register`.
+- `unregisterPushNotifications()` — best-effort DELETE on logout.
+- Foreground → sonner toast; background/terminated → OS banner; tap fires `pushNotificationActionPerformed` → deep-links to `data.url`.
+- Web is a no-op (no console errors).
+- Wired into `AppContext.loginSuccess()` (fresh login) and a boot-time `useEffect` (returning session).
+- `@capacitor/push-notifications@^7.0.0` + `@capacitor/core@^7.0.0` added to `/app/frontend/package.json`.
+
+**iOS auto-configuration** (`/app/build_system/ios.py`):
+- Injects `pod 'Firebase/Messaging'` into `ios/App/Podfile` (idempotent, marker-guarded).
+- Patches `AppDelegate.swift`:
+  - `import Firebase`
+  - `FirebaseApp.configure()` inside `didFinishLaunchingWithOptions`
+  - `Messaging.messaging().apnsToken = deviceToken` inside `didRegisterForRemoteNotificationsWithDeviceToken` — **the critical APNs → FCM bridge that was missing before**.
+- `App.entitlements` `aps-environment` now env-configurable via `IOS_APS_ENVIRONMENT` (default `production`).
+- Runs `pod install` on macOS automatically after Firebase pod injection.
+
+**Android auto-configuration** (`/app/build_system/android.py`):
+- New `patch_android_manifest()` — declares `POST_NOTIFICATIONS` permission (mandatory on Android 13+ / API 33+).
+- `google-services.json` + `firebase-messaging` BOM 33.3.0 already added in earlier iteration.
+
+**Fix — CRA dev-server compat**: pinned `webpack-dev-server` to `^4.15.2` in `frontend/package.json` (was `5.2.4`, incompatible with `react-scripts@5.0.1` due to removed `onAfterSetupMiddleware` API). Frontend now boots reliably.
+
+**Doc**: new `/app/documentation/push-notifications.md` — full architecture, iOS/Android auto-config table, Firebase APNs key upload steps, 4-state test matrix, troubleshooting.
+
+**Files touched**:
+- Backend: unchanged (existing `fcm_service.py` + `/api/push/*` endpoints already solid).
+- Frontend: `lib/pushNotifications.js` (new), `context/AppContext.jsx` (login/logout hooks), `package.json` (deps + webpack-dev-server pin).
+- Build system: `build_system/ios.py` (Firebase pod + AppDelegate patch + env-configurable aps-environment), `build_system/android.py` (POST_NOTIFICATIONS + gradle_build sig refactor).

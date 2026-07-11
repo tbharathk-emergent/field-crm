@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { t as translate } from "@/lib/i18n";
+import { registerPushNotifications, unregisterPushNotifications } from "@/lib/pushNotifications";
 
 const AppContext = createContext(null);
 
@@ -87,9 +88,17 @@ export function AppProvider({ children }) {
       localStorage.removeItem("fc_tenant");
       setSlug(null);
     }
+    // Kick off push notification registration on native builds. Fires the OS
+    // permission prompt on first login and posts the FCM token to the backend
+    // via /api/push/register. Idempotent — safe to call on every login.
+    // Runs async in the background; UI does not block on it.
+    setTimeout(() => { registerPushNotifications().catch(() => {}); }, 500);
   };
 
   const logout = () => {
+    // Best-effort unregister the current device token BEFORE we drop the JWT
+    // (the endpoint requires auth). Fire-and-forget.
+    unregisterPushNotifications().catch(() => {});
     setToken(null); setUser(null); setTenant(null);
     localStorage.removeItem("fc_token");
     localStorage.removeItem("fc_user");
@@ -146,13 +155,21 @@ export function AppProvider({ children }) {
     }
   }, [token, tenant, resolveHostTenant]);
 
+  // Phase 10 — Push notifications: register on app boot if the user has a
+  // valid session (returning user, not a fresh login). Runs once per mount.
+  useEffect(() => {
+    if (token && user) {
+      registerPushNotifications().catch(() => {});
+    }
+  }, []);
+
   const refreshTenant = useCallback(async () => {
     try {
       const res = await api.get("/tenant/profile");
       setTenant(res.data);
       localStorage.setItem("fc_tenant", JSON.stringify(res.data));
       applyTenantTheme(res.data.theme);
-    } catch {}
+    } catch { /* profile refresh best-effort */ }
   }, []);
 
   const refreshMe = useCallback(async () => {
@@ -162,7 +179,7 @@ export function AppProvider({ children }) {
         setUser(res.data.user);
         localStorage.setItem("fc_user", JSON.stringify(res.data.user));
       }
-    } catch {}
+    } catch { /* auth/me refresh best-effort */ }
   }, []);
 
   return (
