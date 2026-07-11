@@ -223,13 +223,18 @@ def cmd_build_tenant(backend_url: str, args: argparse.Namespace) -> int:
             f"(no package.json). Set FRONTEND_DIR correctly in build.env."
         )
     log.info(f"Frontend  : {frontend_dir}")
-    web_env = {
-        "REACT_APP_BACKEND_URL": os.environ.get("API_BASE_URL", backend_url),
-    }
-    if os.environ.get("PLATFORM_HOST"):
-        web_env["REACT_APP_PLATFORM_HOST"] = os.environ["PLATFORM_HOST"]
-    if os.environ.get("WEB_BASE_URL"):
-        web_env["REACT_APP_WEB_BASE_URL"] = os.environ["WEB_BASE_URL"]
+
+    # Strip stray trailing slashes on URL-ish env vars so they don't appear
+    # in the JS bundle or logs.
+    api_base = (os.environ.get("API_BASE_URL") or backend_url).rstrip("/")
+    platform_host = (os.environ.get("PLATFORM_HOST") or "").strip().rstrip("/")
+    web_base = (os.environ.get("WEB_BASE_URL") or "").strip().rstrip("/")
+
+    web_env = {"REACT_APP_BACKEND_URL": api_base}
+    if platform_host:
+        web_env["REACT_APP_PLATFORM_HOST"] = platform_host
+    if web_base:
+        web_env["REACT_APP_WEB_BASE_URL"] = web_base
     capacitor.copy_web_bundle(frontend_dir, out_root / "webapp",
                               env_overrides=web_env, force_rebuild=True)
 
@@ -239,7 +244,7 @@ def cmd_build_tenant(backend_url: str, args: argparse.Namespace) -> int:
 
     # -------- 4. Emit capacitor.config.ts + package.json + install --------
     section("3/6 Writing capacitor.config.ts + package.json")
-    server_host = os.environ.get("PLATFORM_HOST") or m.server_host
+    server_host = platform_host or m.server_host
     server_url = f"https://{server_host}" if server_host else None
     capacitor.write_capacitor_config(
         out_root, m, bundle_id=bundle_id, app_name=app_name,
