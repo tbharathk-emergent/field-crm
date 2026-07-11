@@ -40,6 +40,7 @@ _PBX_BUNDLE_ID_RE = re.compile(r"(PRODUCT_BUNDLE_IDENTIFIER\s*=\s*)[^;\n]+;")
 _PBX_TEAM_RE = re.compile(r"(DEVELOPMENT_TEAM\s*=\s*)[^;\n]+;")
 _PBX_VERSION_RE = re.compile(r"(MARKETING_VERSION\s*=\s*)[^;\n]+;")
 _PBX_BUILD_RE = re.compile(r"(CURRENT_PROJECT_VERSION\s*=\s*)[^;\n]+;")
+_PBX_ENTITLEMENTS_RE = re.compile(r"(CODE_SIGN_ENTITLEMENTS\s*=\s*)[^;\n]+;")
 
 
 def patch_pbxproj(p: IosBuildParams) -> None:
@@ -54,6 +55,19 @@ def patch_pbxproj(p: IosBuildParams) -> None:
     content = _PBX_BUNDLE_ID_RE.sub(f"\\g<1>{p.bundle_id};", content)
     content = _PBX_VERSION_RE.sub(f"\\g<1>{p.version_name};", content)
     content = _PBX_BUILD_RE.sub(f"\\g<1>{p.version_code};", content)
+
+    # Ensure CODE_SIGN_ENTITLEMENTS points at our App/App.entitlements. Without
+    # this, iOS ignores App.entitlements → push notifications capability is
+    # effectively OFF regardless of what App.entitlements contains.
+    entitlements_path = "App/App.entitlements"
+    if _PBX_ENTITLEMENTS_RE.search(content):
+        content = _PBX_ENTITLEMENTS_RE.sub(f"\\g<1>{entitlements_path};", content)
+    else:
+        # Insert next to every PRODUCT_BUNDLE_IDENTIFIER (each buildSettings block).
+        content = _PBX_BUNDLE_ID_RE.sub(
+            lambda m: m.group(0) + f"\n\t\t\t\tCODE_SIGN_ENTITLEMENTS = {entitlements_path};",
+            content,
+        )
 
     team = os.environ.get("IOS_TEAM_ID", "").strip()
     if team:

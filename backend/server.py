@@ -12,6 +12,7 @@ from pathlib import Path
 import os
 import io
 import json
+import re
 import uuid
 import logging
 import pandas as pd
@@ -2808,6 +2809,11 @@ async def _dispatch_to_tenant(tenant_id: str, title: str, body: str,
                 result["tokens_targeted"] = len(tokens)
                 result["source"] = "tenant_firebase_config"
                 result["firebase_project_id"] = fp["project_id"]
+                # Phase 10: garbage-collect tokens FCM rejected as invalid so
+                # future sends don't churn on the same dead entries.
+                purged = await _purge_invalid_tokens(tenant_id, result.get("invalid_tokens") or [])
+                if purged:
+                    result["purged_dead_tokens"] = purged
                 return result
 
     # --- Phase 5 fallback: env-based shard ---
@@ -2815,7 +2821,57 @@ async def _dispatch_to_tenant(tenant_id: str, title: str, body: str,
     result["tokens_targeted"] = len(tokens)
     result["shard_id"] = shard
     result["source"] = "env_shard"
+    purged = await _purge_invalid_tokens(tenant_id, result.get("invalid_tokens") or [])
+    if purged:
+        result["purged_dead_tokens"] = purged
     return result
+
+
+async def _purge_invalid_tokens(tenant_id: str, invalid_tokens: List[str]) -> int:
+    """Delete tokens that Firebase rejected as invalid. Returns count purged.
+
+    Called by both send paths after `fcm_service.send_to_tokens` returns.
+    Idempotent — passing an empty list is a no-op.
+    """
+    if not invalid_tokens:
+        return 0
+    r = await db.push_tokens.delete_many({
+        "tenant_id": tenant_id,
+        "token": {"$in": invalid_tokens},
+    })
+    if r.deleted_count:
+        logger.info("[push] purged %d invalid tokens for tenant %s", r.deleted_count, tenant_id)
+    return r.deleted_count
+
+
+@api.post("/super/push/tokens/purge")
+async def super_purge_push_tokens(
+    tenant_id: Optional[str] = Query(None),
+    prefix: Optional[str] = Query(None,
+        description="Optional token prefix to match (e.g. 'tok-' or 'synth-'). "
+                    "Useful for cleaning out synthetic test tokens."),
+    user: dict = Depends(require_roles("super_admin")),
+):
+    """Bulk-purge push tokens.
+
+    Filters (both optional, AND-combined):
+      * `tenant_id` — limit purge to one tenant
+      * `prefix`    — only delete tokens starting with this string
+
+    If NEITHER filter is given, this refuses (safety). Returns count deleted.
+    """
+    if not tenant_id and not prefix:
+        raise HTTPException(400, detail={"code": "no_filter",
+            "message": "Provide tenant_id and/or prefix to avoid nuking every token."})
+    q: Dict[str, object] = {}
+    if tenant_id:
+        q["tenant_id"] = tenant_id
+    if prefix:
+        # Anchor the regex to the start of the token; escape user input.
+        q["token"] = {"$regex": f"^{re.escape(prefix)}"}
+    r = await db.push_tokens.delete_many(q)
+    logger.info("[super] purged %d push_tokens with filter %s", r.deleted_count, q)
+    return {"ok": True, "deleted": r.deleted_count, "filter": q}
 
 
 class PushTestIn(BaseModel):

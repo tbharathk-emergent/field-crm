@@ -28,6 +28,24 @@ import os
 import threading
 from typing import Dict, List, Optional, Tuple
 
+
+# Firebase-admin error strings that mean "this token is dead — stop sending to it".
+# https://firebase.google.com/docs/cloud-messaging/manage-tokens#detect-invalid-token-responses-from-the-fcm-backend
+_INVALID_TOKEN_MARKERS = (
+    "not a valid FCM registration token",
+    "Requested entity was not found",
+    "registration-token-not-registered",
+    "invalid-registration-token",
+    "invalid-argument",
+    "InvalidArgument",
+    "NotRegistered",
+)
+
+
+def _is_invalid_token_error(err: str) -> bool:
+    e = (err or "").lower()
+    return any(marker.lower() in e for marker in _INVALID_TOKEN_MARKERS)
+
 logger = logging.getLogger("fieldcrm.fcm")
 
 # Google's per-project topic/token quotas comfortably serve 15 tenants each in our sizing.
@@ -150,10 +168,17 @@ def send_to_tokens(
             )
             resp = messaging.send_each_for_multicast(message, app=app)
             failures = []
+            invalid_tokens = []
             for i, r in enumerate(resp.responses):
                 if not r.success:
-                    failures.append({"token": tokens[i][:12] + "…", "error": str(r.exception) if r.exception else "unknown"})
-            return {"sent": resp.success_count, "failed": resp.failure_count, "failure_reasons": failures}
+                    err_str = str(r.exception) if r.exception else "unknown"
+                    failures.append({"token": tokens[i][:12] + "…", "error": err_str})
+                    # Firebase marks stale tokens with these specific errors — collect
+                    # them so the caller can bulk-delete from push_tokens.
+                    if _is_invalid_token_error(err_str):
+                        invalid_tokens.append(tokens[i])
+            return {"sent": resp.success_count, "failed": resp.failure_count,
+                    "failure_reasons": failures, "invalid_tokens": invalid_tokens}
         except Exception as exc:
             logger.warning("Inline FCM send failed for project %s: %s", project_id, exc)
             return {"sent": 0, "failed": len(tokens), "disabled": f"inline send error: {exc}"}
@@ -177,13 +202,15 @@ def send_to_tokens(
         # send_each_for_multicast avoids the deprecated `send_multicast` in newer SDKs.
         resp = messaging.send_each_for_multicast(message, app=app)
         failures = []
+        invalid_tokens = []
         for i, r in enumerate(resp.responses):
             if not r.success:
-                failures.append({
-                    "token": tokens[i][:12] + "…",
-                    "error": str(r.exception) if r.exception else "unknown",
-                })
-        return {"sent": resp.success_count, "failed": resp.failure_count, "failure_reasons": failures}
+                err_str = str(r.exception) if r.exception else "unknown"
+                failures.append({"token": tokens[i][:12] + "…", "error": err_str})
+                if _is_invalid_token_error(err_str):
+                    invalid_tokens.append(tokens[i])
+        return {"sent": resp.success_count, "failed": resp.failure_count,
+                "failure_reasons": failures, "invalid_tokens": invalid_tokens}
     except Exception as exc:  # pragma: no cover - runtime FCM failures
         logger.warning("FCM send failed on shard %s: %s", shard_id, exc)
         return {"sent": 0, "failed": len(tokens), "disabled": f"send error: {exc}"}

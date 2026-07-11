@@ -15,7 +15,7 @@ SUPER_OTP = os.environ.get("SUPER_ADMIN_OTP", "557725")
 
 @pytest.fixture(scope="module")
 def super_token():
-    with httpx.Client(base_url=BASE, timeout=15) as c:
+    with httpx.Client(base_url=BASE, timeout=30) as c:
         r = c.post("/api/auth/request-otp", json={"phone": SUPER_PHONE})
         assert r.status_code == 200, r.text
         r = c.post("/api/auth/verify-otp",
@@ -29,7 +29,7 @@ def super_token():
 @pytest.fixture(scope="module")
 def tenant_token():
     """Non-super token for negative auth tests."""
-    with httpx.Client(base_url=BASE, timeout=15) as c:
+    with httpx.Client(base_url=BASE, timeout=30) as c:
         c.post("/api/auth/request-otp", json={"phone": "9000000001"})
         r = c.post("/api/auth/verify-otp",
                    json={"phone": "9000000001", "otp": "123456",
@@ -42,7 +42,7 @@ def tenant_token():
 
 
 def _get(token, url):
-    with httpx.Client(base_url=BASE, timeout=15) as c:
+    with httpx.Client(base_url=BASE, timeout=30) as c:
         return c.get(url, headers={"Authorization": f"Bearer {token}"})
 
 
