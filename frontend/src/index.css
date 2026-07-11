@@ -184,6 +184,61 @@ body {
     padding-right: var(--sa-right);
 }
 
+/* ========================================================================
+ * Phase 10 — Seamless overscroll / safe-area background
+ *
+ * The iOS WebView rubber-band + Android overscroll glow reveal whatever
+ * color sits BEHIND the JS bundle (Capacitor's `ios.backgroundColor` /
+ * `android.backgroundColor`). For a truly seamless look we want the visible
+ * safe-area strips to blend with the sticky header (top) and the fixed
+ * bottom nav (both white) — see `build_system/capacitor.py::webview_bg`.
+ *
+ * On the web / PWA side, mirror that by making html+body white and disabling
+ * the vertical overscroll bounce that would otherwise reveal the browser's
+ * default scroll surface (usually light-grey).
+ * ======================================================================== */
+html, body {
+    /* Neutral base — matches the fixed header + bottom nav backgrounds and
+       the native WebView background color. */
+    background-color: #FFFFFF;
+    /* Contain Android's overscroll glow AND iOS's chained-scroll rubber-band
+       leaking to <html>. */
+    overscroll-behavior-y: contain;
+}
+
+/* Give the actual scrolling region the app's warm off-white so long lists
+   still feel branded. Any page-level container that wants a different tone
+   can override this locally. */
+#root {
+    background-color: var(--brand-bg, #F5F2EB);
+    min-height: 100vh;
+    min-height: 100dvh;
+}
+
+/* The fixed bottom nav already extends into the home-indicator area via the
+   `.safe-pb` utility. Guarantee its background continues into the safe area
+   even during transient overscroll bounces on iOS. */
+.fixed-bottom-safe,
+nav.fixed.bottom-0 {
+    background-clip: padding-box;
+}
+
+/* Cover the bottom home-indicator strip with the SAME color as the fixed
+   bottom nav (white) so it looks like a single continuous surface. Applied
+   via a ::before pseudo-element on <body> — pointer-events:none so it never
+   interferes with taps. */
+body::before {
+    content: "";
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: var(--sa-bottom);
+    background: #FFFFFF;
+    pointer-events: none;
+    z-index: 0;
+}
+
 
 /* Legal document typography (Legal.jsx renderMarkdown output) */
 .legal-prose h1 { font-size: 1.5rem; font-weight: 600; margin: 1.5rem 0 0.75rem; font-family: var(--font-display, inherit); }

@@ -127,6 +127,12 @@ def write_capacitor_config(project_root: Path, m: BuildManifest,
     """Emit capacitor.config.ts. `server_url` overrides the on-boot host."""
     theme = m.tenant.get("theme") or {}
     primary = theme.get("primary") or "#2C5E43"
+    # `webview_bg` is the color visible behind the JS content — appears during
+    # the iOS/Android rubber-band overscroll and inside the bottom home-indicator
+    # safe-area. Setting it to WHITE (matching our sticky header + fixed tab-bar
+    # backgrounds) keeps the bottom edge seamless. Splash + StatusBar remain
+    # branded (primary).
+    webview_bg = theme.get("webview_bg") or "#FFFFFF"
 
     # Deliberately NOT setting server.url — the app is fully offline-capable and
     # ships the web bundle. The `hostname` param remains for App Links / OAuth
@@ -148,15 +154,16 @@ const config: CapacitorConfig = {{
     iosScheme: 'https',{hostname_line}
   }},
   ios: {{
-    contentInset: 'always',
+    contentInset: 'automatic',
     limitsNavigationsToAppBoundDomains: false,
-    backgroundColor: '{primary}',
+    backgroundColor: '{webview_bg}',
     scheme: 'App',
+    scrollEnabled: true,
   }},
   android: {{
     allowMixedContent: false,
     captureInput: true,
-    backgroundColor: '{primary}',
+    backgroundColor: '{webview_bg}',
     webContentsDebuggingEnabled: false,
   }},
   plugins: {{
