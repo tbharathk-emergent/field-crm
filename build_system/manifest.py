@@ -35,6 +35,31 @@ _DEFAULT_HEADERS = {
 }
 
 
+def _looks_like_html(body: str) -> bool:
+    b = body.lstrip()[:100].lower()
+    return b.startswith("<") or "<html" in b or "<!doctype" in b
+
+
+def _format_error(method: str, url: str, code: int, body: str) -> str:
+    hint = ""
+    if code == 405 or (code in (403, 404) and _looks_like_html(body)):
+        # Almost always: pointing at the web host, not the API host.
+        hint = (
+            "\n\n  → Response is HTML from nginx, which means the URL you pointed "
+            "to does NOT proxy /api/* to FastAPI."
+            "\n  → Fix: set API_BASE_URL in build.env to your FastAPI host "
+            "(e.g. https://api.<your-domain>) OR add an nginx `location /api/ "
+            "{ proxy_pass http://127.0.0.1:8001; }` block to the web host."
+        )
+    elif code == 401:
+        hint = ("\n\n  → Wrong SUPER_ADMIN_OTP/PHONE in build.env, "
+                "or SUPER_ADMIN_TOKEN has expired.")
+    elif code == 403:
+        hint = "\n\n  → The account authenticated is not a super_admin."
+    snippet = body if len(body) <= 400 else body[:400] + "…"
+    return f"HTTP {code} {method} {url}\n  Body: {snippet}{hint}"
+
+
 def _post_json(url: str, body: dict, headers: Optional[dict] = None) -> dict:
     req = urllib.request.Request(
         url,
@@ -46,7 +71,7 @@ def _post_json(url: str, body: dict, headers: Optional[dict] = None) -> dict:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        raise BuildError(f"HTTP {e.code} POST {url}: {e.read().decode('utf-8', 'replace')}")
+        raise BuildError(_format_error("POST", url, e.code, e.read().decode("utf-8", "replace")))
     except urllib.error.URLError as e:
         raise BuildError(f"Network error POST {url}: {e}")
 
@@ -57,7 +82,7 @@ def _get_json(url: str, headers: Optional[dict] = None) -> dict:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        raise BuildError(f"HTTP {e.code} GET {url}: {e.read().decode('utf-8', 'replace')}")
+        raise BuildError(_format_error("GET", url, e.code, e.read().decode("utf-8", "replace")))
     except urllib.error.URLError as e:
         raise BuildError(f"Network error GET {url}: {e}")
 
