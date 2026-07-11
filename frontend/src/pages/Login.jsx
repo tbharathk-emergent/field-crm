@@ -71,7 +71,7 @@ export default function Login() {
   }, [resendIn]);
 
   const sendOtp = async () => {
-    if (!phone || phone.length < 6) return toast.error("Enter valid phone");
+    if (!phone || phone.length !== 10) return toast.error("Enter a 10-digit mobile number");
     setLoading(true);
     // Retry once on 502/503/504 or network errors — preview containers cold-start
     // through Cloudflare and can 502 for the first ~2-5 seconds after a scale-up.
@@ -231,8 +231,9 @@ export default function Login() {
                     data-testid="phone-input"
                     type="tel"
                     inputMode="numeric"
+                    maxLength={10}
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 12))}
+                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
                     placeholder={t("enter_phone")}
                     className="flex-1 outline-none bg-transparent pl-3 text-base"
                   />

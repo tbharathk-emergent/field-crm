@@ -1,0 +1,18 @@
+{
+  "summary": "Frontend-only verification of the 10-digit mobile-number restriction on the Login page. All 8 UI/integration checks passed: maxLength=10 attribute present, input clamps at 10 digits when typed or JS-pasted, non-digits stripped, short-number (5-digit) submission is blocked client-side with toast 'Enter a 10-digit mobile number' and ZERO /auth/request-otp calls fired, exactly-10 super-admin phone triggers 200 request-otp with mock OTP toast and advances to OTP step, super-admin end-to-end OTP verify redirects to /super-admin, tenant login at /t/demo enforces same maxLength=10 clamp and Send OTP succeeds, reviewer 9898989898 send-otp still works, and wrong OTP shows readable 'Invalid OTP' toast (no '[object Object]').",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Login.jsx is 367 lines and mixes phone/OTP UI, demo-login panel, and tenant role tabs. Consider splitting demo-login block and hero panel into subcomponents for readability."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100% (8/8)"},
+  "test_credentials": "Super Admin 9858558555/557725, Reviewer 9898989898/123456, Demo Tenant 9000000001/123456 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Login.jsx phone input has maxLength={10} attribute (line 234) and onChange slicing to 10 digits (line 236); sendOtp() rejects phone.length !== 10 with toast before API. All flows verified against public URL. Tenant login path is /t/:slug (not /t/:slug/login).",
+  "rca of the issue": "n/a — this iteration was verification of a UI restriction that main agent had already implemented. No bug found."
+}
