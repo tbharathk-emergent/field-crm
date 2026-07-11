@@ -275,3 +275,33 @@ Layering "Bizil-Pattern" scaffolding onto the existing MVP. **Golden rule: addit
 - P3: Split `server.py` (3218 lines) into `/app/backend/routes/` by domain (auth/tenants/orders/uploads/legal/…). Optionally add typed response model for `/api/auth/me`.
 - P3 (cosmetic): Fix Recharts `width(-1) height(-1)` container-sizing warnings on tenant admin dashboard tiles.
 - P3 (optional DX): Add `?slug=<x>` query fallback in `/api/public/tenant-resolve` for easier debugging.
+
+
+## Phase 10 — Capacitor Build System (Feb 11, 2026)
+
+Fully automated per-tenant Capacitor build via `python3 build_app.py`.
+
+**Backend**
+- New `GET /api/super/build/manifest/{slug}` (super_admin JWT) — packages tenant metadata, theme, base64 logo, per-platform Firebase config (raw google-services.json / GoogleService-Info.plist), and derived `<slug>.<ROOT_DOMAIN>` host in one call.
+- 4 new pytest cases in `tests/test_phase10_build_manifest.py` — auth guard, shape, unknown slug, ROOT_DOMAIN host derivation. All green.
+
+**Build orchestrator (`/app/build_app.py` + `/app/build_system/`)**
+- CLI: `--tenant <slug> --platform android|ios --version <x.y.z> --version-code <int> [--output apk|aab|prep]`.
+- `manifest.py` — OTP-auths as super admin, fetches build manifest (Cloudflare-safe UA).
+- `capacitor.py` — writes `capacitor.config.ts` (per-tenant appId, appName, primary color plugin config for SplashScreen/StatusBar/Keyboard), `package.json` with pinned Capacitor 7 deps + TypeScript, runs `yarn install` + `npx cap add <platform>`.
+- `assets.py` — Pillow-based icon + splash generation: 5 Android densities × (launcher + round + foreground), adaptive-icon XML, values color, 2732×2732 splash into all `drawable-*` folders, iOS AppIcon.appiconset (18 sizes iPhone + iPad + marketing), 512×512 Play Store icon.
+- `android.py` — patches `applicationId`, `versionName`, `versionCode` in `app/build.gradle`; applies google-services plugin + firebase-messaging BOM 33.3.0; sets `strings.xml` display name; injects release signing config from env; runs `./gradlew assembleDebug` (APK) or `bundleRelease` (AAB) when `ANDROID_HOME` is set; skips gracefully otherwise.
+- `ios.py` — patches project.pbxproj (PRODUCT_BUNDLE_IDENTIFIER, MARKETING_VERSION, CURRENT_PROJECT_VERSION, DEVELOPMENT_TEAM), Info.plist (CFBundleDisplayName/Name/Version + UIBackgroundModes=remote-notification), writes App.entitlements (aps-environment=production). Prep-only (macOS finish required for `cap add ios`).
+
+**Tenant isolation delivered**
+- Separate `applicationId` / bundle ID per tenant → distinct OS entries + separate data sandbox.
+- Per-tenant Firebase config → notifications routed independently, no cross-talk.
+- Per-tenant name, logo (all resolutions), splash, theme baked into the binary.
+- Web bundle same code, tenant chosen at runtime by subdomain resolver from `ROOT_DOMAIN`.
+
+**Validated E2E on demo tenant** (Feb 11, 2026)
+- `python3 build_app.py --tenant demo --platform android --version 1.0.0 --version-code 1 --output prep` — full success; project at `/app/dist/tenants/demo/` with correct `capacitor.config.ts`, patched `build.gradle` (`applicationId "in.localappstore.fieldcrm.demo"`, `versionCode 1`, `versionName "1.0.0"`), all 5 icon densities + adaptive XML + 512×512 marketing icon + 2732 splash across all `drawable-*` folders + tenant name in `strings.xml`. iOS prep path also validated (with expected macOS-only limitations logged as warnings).
+
+**Docs**
+- New `/app/documentation/build-system.md` — full CLI reference, env-var table, isolation guarantees, Mac finishing steps.
+- `backend/.env.example` — added ANDROID_HOME, ANDROID_KEYSTORE_*, IOS_TEAM_ID, IOS_BUNDLE_PREFIX, BUILD_OUT_ROOT.

@@ -3206,6 +3206,72 @@ async def super_push_test(tenant_id: str,
 # ==================== END PHASE 8 ====================
 
 
+# ==================== PHASE 10: Build Manifest ====================
+# One-shot endpoint that packages everything build_app.py needs to produce
+# a fully-branded Capacitor project for a tenant: tenant metadata, per-platform
+# Firebase config files (raw text), and the logo as base64.
+# Requires super_admin JWT.
+
+@api.get("/super/build/manifest/{slug}")
+async def build_manifest(slug: str, user: dict = Depends(require_roles("super_admin"))):
+    import base64 as _b64
+    t = await db.tenants.find_one({"slug": slug})
+    if not t:
+        raise HTTPException(404, detail={"code": "tenant_not_found", "message": f"Tenant '{slug}' not found"})
+    t = clean(t)
+
+    fcfg = await _load_tfc(t["id"])  # {tenant_id, android|None, ios|None}
+    android = fcfg.get("android") or {}
+    ios = fcfg.get("ios") or {}
+
+    logo_b64 = None
+    logo_mime = None
+    logo_path = t.get("logo_path")
+    if logo_path:
+        try:
+            data, ctype = storage.get_object(logo_path)
+            logo_b64 = _b64.b64encode(data).decode("ascii")
+            logo_mime = ctype or "image/png"
+        except Exception as e:
+            logger.warning(f"[build_manifest] could not fetch logo {logo_path}: {e}")
+
+    root_domain = os.environ.get("ROOT_DOMAIN", "").strip()
+    host = f"{t['slug']}.{root_domain}" if root_domain else None
+    server_url = f"https://{host}" if host else None
+
+    return {
+        "tenant": {
+            "id": t["id"], "slug": t["slug"], "name": t["name"],
+            "business_type": t.get("business_type"),
+            "default_language": t.get("default_language", "en"),
+            "theme": t.get("theme") or {},
+            "labels": t.get("labels") or {},
+            "logo_path": logo_path,
+            "custom_domain": t.get("custom_domain"),
+        },
+        "logo": {"base64": logo_b64, "mime": logo_mime} if logo_b64 else None,
+        "firebase": {
+            "android": {
+                "app_id": android.get("app_id"),
+                "package_name": android.get("package_name"),
+                "mode": android.get("mode"),
+                "config_json": android.get("config_json"),
+            } if android else None,
+            "ios": {
+                "app_id": ios.get("app_id"),
+                "bundle_id": ios.get("package_name"),
+                "mode": ios.get("mode"),
+                "config_plist": ios.get("config_json"),
+            } if ios else None,
+        },
+        "server": {"root_domain": root_domain or None, "host": host, "url": server_url},
+        "generated_at": now_iso(),
+    }
+
+
+# ==================== END PHASE 10 ====================
+
+
 # Include routes & CORS
 app.include_router(api)
 app.add_middleware(
