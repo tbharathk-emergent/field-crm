@@ -1,196 +1,200 @@
 # Capacitor Build System — `build_app.py`
 
 **Phase 10 (Feb 2026)** — Fully automated, per-tenant Capacitor build pipeline.
-Produces isolated Android APK/AAB + iOS Xcode project for any tenant with a
-single command.
+Produces a completely isolated Android APK/AAB + iOS Xcode project for any
+tenant with a single command. Firebase files are fetched from the backend
+automatically — never manually copied.
 
 ---
 
-## TL;DR
+## Quick start
 
 ```bash
-# Android debug APK (sideloadable):
-python3 build_app.py --tenant demo --platform android \
-    --version 1.0.0 --version-code 1 --output apk
+# 1. One-time setup — copy the example env file and edit it.
+cp /app/build.env.example /app/build.env
+$EDITOR /app/build.env
 
-# Android release AAB (Play Store):
-python3 build_app.py --tenant acme --platform android \
-    --version 2.4.1 --version-code 41 --output aab
+# 2. Discover tenants
+python3 build_app.py --list-tenants
 
-# iOS Xcode project (open on Mac, archive from Xcode):
-python3 build_app.py --tenant acme --platform ios \
-    --version 2.4.1 --version-code 41
+# 3. Build Android debug APK (sideloadable, no signing needed)
+python3 build_app.py --tenant local-line --version 1.0.0 --version-code 1 --platform android
+
+# 4. Build Android release AAB (Play Store)
+python3 build_app.py --tenant local-line --version 2.4.1 --version-code 41 \
+    --platform android --output aab
+
+# 5. Prepare iOS Xcode project (open on Mac)
+python3 build_app.py --tenant local-line --version 1.0.0 --version-code 1 --platform ios
 ```
 
-Output is written to `/app/dist/tenants/<slug>/` — one fully self-contained
-project per tenant. Re-running the command refreshes assets in place
-(idempotent).
+Output lands in `${OUTPUT_DIR}/<slug>/` — one fully self-contained project per
+tenant. Every re-run **wipes** the previous folder first, guaranteeing zero
+cross-tenant contamination (Firebase files, cached JS, stale gradle build).
 
 ---
 
-## Architecture
+## build.env schema
+
+The build script has **its own env file**, decoupled from the FastAPI backend.
+Copy `/app/build.env.example` → `/app/build.env` (or pass `--env-file <path>`).
+
+```env
+# 1. Runtime API endpoints — baked into the tenant web bundle
+API_BASE_URL=https://groceryapi.localappstore.in
+PLATFORM_HOST=grocery.localappstore.in
+WEB_BASE_URL=https://grocery.localappstore.in
+
+# 2. Super admin creds — used to fetch the tenant manifest + Firebase files
+SUPER_ADMIN_PHONE=9858558555
+SUPER_ADMIN_OTP=557725
+# SUPER_ADMIN_TOKEN=<pre-issued-JWT>   # if set, skips the OTP flow
+
+# 3. Android release signing (leave blank for --output apk debug builds)
+ANDROID_KEYSTORE_PATH=/Users/…/coverage/follo.jks
+ANDROID_KEYSTORE_PASSWORD=android
+ANDROID_KEY_ALIAS=follo
+ANDROID_KEY_PASSWORD=android
+
+# 4. iOS
+IOS_TEAM_ID=YY28T8HJ3C
+IOS_BUNDLE_PREFIX=in.localappstore.fieldcrm
+
+# 5. Build output + Android SDK
+OUTPUT_DIR=./output
+# ANDROID_HOME=/opt/android-sdk        # required only for --output apk|aab compile
+```
+
+**How the URLs are used**
+
+| var | Used by |
+|---|---|
+| `API_BASE_URL` | Injected as `REACT_APP_BACKEND_URL` when `yarn build` runs → the compiled JS bundle calls this API at runtime |
+| `PLATFORM_HOST` | Set as `capacitor.config.ts` server.hostname (subdomain resolver + universal-link seed) and as `REACT_APP_PLATFORM_HOST` for the frontend |
+| `WEB_BASE_URL` | Set as `REACT_APP_WEB_BASE_URL` — used by the web bundle for "Open in browser" / share fallbacks |
+
+---
+
+## Commands
+
+### `--list-tenants`
+
+Prints a formatted table of every tenant visible to the super admin:
 
 ```
-build_app.py                  # CLI entry point (argparse)
-build_system/
-├── manifest.py               # OTP-authenticates super admin → fetches manifest
-├── assets.py                 # Pillow-based icon + splash generation
-├── capacitor.py              # capacitor.config.ts + package.json + cap add
-├── android.py                # Android mutations + gradle compile
-├── ios.py                    # iOS project mutations (prep-only, macOS finish)
-└── utils.py                  # subprocess, color parsing, logging
+  SLUG            NAME          TYPE         STATUS      USERS (emp/dlr/cust)
+  ---------------------------------------------------------------------------
+  local-line      Local Line    Grocery      active      12/8/145
+  demo            Akshara Agro  Agriculture  active      29/24/43
+  ...
+  Total: 10 tenant(s)
 ```
 
-Backend endpoint:
+### Tenant build
+
 ```
-GET /api/super/build/manifest/{slug}    # super_admin JWT required
+python3 build_app.py \
+    --tenant <slug> \
+    --platform <android|ios> \
+    --version <x.y.z> \
+    --version-code <int> \
+    [--output apk|aab|prep]     (android only, default apk)
+    [--env-file PATH]           (default ./build.env or /app/build.env)
+    [--out-dir DIR]             (override OUTPUT_DIR)
+    [--backend-url URL]         (override API_BASE_URL)
+    [--verbose | -v]
 ```
-Returns tenant metadata, theme, logo (base64), and per-platform Firebase config
-files in a single JSON response. See `test_phase10_build_manifest.py`.
+
+---
+
+## Automatic Firebase file management
+
+Zero manual copying. On every build the script:
+
+1. Fetches the tenant's Firebase config for BOTH platforms from
+   `GET /api/super/build/manifest/<slug>` (super_admin auth).
+2. Deletes any stale `google-services.json` / `GoogleService-Info.plist` from
+   the previous run (`wipe_stale_firebase_files`).
+3. Writes the fresh raw JSON/plist into:
+   - `android/app/google-services.json`
+   - `ios/App/App/GoogleService-Info.plist`
+4. Applies the `com.google.gms.google-services` Gradle plugin + Firebase
+   Messaging BOM automatically in `android/app/build.gradle` and root gradle.
+
+If a tenant later removes their Firebase config in Super Admin, the next build
+will emit a `WARNING` and leave the files absent → push notifications simply
+turn off, no build error.
 
 ---
 
 ## Per-tenant isolation guarantees
 
-Each generated app has its own:
+Each generated app gets its own:
 
 | Field | Source |
 |---|---|
-| App name | `tenant.name` (e.g. "Akshara Agro") |
-| Package/Bundle ID | `${IOS_BUNDLE_PREFIX}.<slug-alnum-lowercased>` (e.g. `in.localappstore.fieldcrm.demo`) |
+| App name | `tenant.name` (e.g. "Local Line") |
+| Package/Bundle ID | `${IOS_BUNDLE_PREFIX}.<slug-alnum-lowercased>` (e.g. `in.localappstore.fieldcrm.localline`) |
 | Logo (all densities) | Tenant `logo_path` → S3, auto-resized via Pillow |
 | Splash | Same logo centered on `tenant.theme.primary` background |
-| Firebase project | Per-tenant `google-services.json` / `GoogleService-Info.plist` from `tenant_firebase_config` |
-| Push notification project | Delivered via that tenant's Firebase project only (no cross-talk) |
-| API server | Baked into web bundle at build time via `REACT_APP_BACKEND_URL` |
-| Privacy Policy / T&C | Tenant-scoped URLs already handled in the web bundle |
-| Theme | `tenant.theme.primary` → StatusBar + SplashScreen + AndroidManifest |
+| Firebase project | Per-tenant `google-services.json` / `GoogleService-Info.plist` (server-owned) |
+| Push notifications | Delivered ONLY via that tenant's Firebase project |
+| API endpoint | `API_BASE_URL` baked into JS bundle at compile time |
+| Theme | `tenant.theme.primary` → StatusBar + SplashScreen colors |
 
 Installing two tenant apps on the same device is completely safe:
 - Different `applicationId` → separate app entries, separate data sandboxes.
 - Different Firebase project → notifications routed independently.
 - Different launcher icon + app name → visually distinct.
 
+Re-building the same tenant a second time **fully wipes** the previous output
+folder before starting, so build_1 artifacts can never leak into build_2.
+
 ---
 
-## CLI Reference
+## Backend endpoint
 
 ```
---tenant <slug>            (required)  Tenant slug from Super Admin
---platform <android|ios>   (required)
---version <x.y.z>          (required)  Marketing version
---version-code <int>       (required)  Integer build number
---output apk|aab|prep      (default apk, android only)
---backend-url URL          Override $BACKEND_URL / $REACT_APP_BACKEND_URL
---super-token TOKEN        Skip OTP flow with a pre-obtained JWT
---super-phone PHONE        Override super admin phone
---super-otp OTP            Override super admin OTP (mock mode)
---out-dir DIR              Override /app/dist/tenants/<slug>
---force-rebuild            Force `yarn build` even if /app/frontend/build exists
---prep-only                Skip gradle compile (Android). iOS is always prep.
---verbose | -v             Debug logging
+GET /api/super/build/manifest/{slug}    # super_admin JWT
 ```
 
-## Environment variables
+Returns tenant metadata, theme, logo (base64), and per-platform Firebase config
+files in one call.
 
-Add these to `/app/backend/.env` (or export in your CI):
+Tests: `pytest backend/tests/test_phase10_build_manifest.py -v` — 4/4 green.
 
-```env
-# --- Build orchestration ---
-BACKEND_URL="https://api.your-domain.com"    # or use REACT_APP_BACKEND_URL
-SUPER_ADMIN_PHONE="9858558555"
-SUPER_ADMIN_OTP="557725"                     # mock mode
+---
 
-# --- Android compile ---
-ANDROID_HOME="/opt/android-sdk"              # required for `--output apk|aab`
-ANDROID_KEYSTORE_PATH="/keys/fieldcrm.jks"   # required for `--output aab`
-ANDROID_KEYSTORE_PASSWORD="s3cret"
-ANDROID_KEY_ALIAS="release"
-ANDROID_KEY_PASSWORD="s3cret"
+## Where to obtain each value
 
-# --- iOS ---
-IOS_TEAM_ID="A1B2C3D4E5"                     # Apple Developer team, 10-char
-IOS_BUNDLE_PREFIX="in.localappstore.fieldcrm"
+| Var | Where |
+|---|---|
+| `API_BASE_URL` | Wherever your FastAPI backend is deployed |
+| `PLATFORM_HOST` | Root domain used by your subdomain resolver |
+| `IOS_TEAM_ID` | https://developer.apple.com/account → Membership → Team ID (10 chars) |
+| `ANDROID_HOME` | Wherever you installed the Android SDK (Android Studio → SDK Manager shows the path) |
+| Keystore | `keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias release` |
 
-# --- Optional overrides ---
-BUILD_OUT_ROOT="/app/dist/tenants"
-FRONTEND_DIR="/app/frontend"
-```
+---
 
-## Workflow
+## Compile requirements
 
-### Android APK for internal testing
+**Android (`--output apk|aab`)** — the machine running `build_app.py` must have:
+- Java 17+
+- Android SDK (`ANDROID_HOME` set)
+- Gradle (bundled via `./gradlew`, downloaded on first run)
 
-The container **must** have `ANDROID_HOME` set and Android SDK installed:
+If `ANDROID_HOME` is not set, the script prints a warning and stops at "prep"
+mode — you can finish the build later on any machine with the SDK installed.
+
+**iOS** — the script prepares the project on Linux (icons, entitlements,
+Info.plist mutations, Firebase file, capacitor config). The final Xcode
+scaffold requires **macOS + CocoaPods**:
 
 ```bash
-python3 build_app.py --tenant demo --platform android \
-    --version 1.0.0 --version-code 1 --output apk
-# → /app/dist/tenants/demo/android/app/build/outputs/apk/debug/app-debug.apk
-```
-
-Copy the APK to your phone (USB or drive) and install directly. Debug-signed
-so it does NOT require Play Store publishing.
-
-### Android AAB for Play Store
-
-```bash
-export ANDROID_KEYSTORE_PATH=/path/to/release.jks
-export ANDROID_KEYSTORE_PASSWORD='…'
-export ANDROID_KEY_ALIAS=release
-export ANDROID_KEY_PASSWORD='…'
-
-python3 build_app.py --tenant acme --platform android \
-    --version 2.4.1 --version-code 41 --output aab
-# → /app/dist/tenants/acme/android/app/build/outputs/bundle/release/app-release.aab
-```
-
-Upload the `.aab` to Play Console → Internal Testing → Release.
-
-### iOS Xcode project
-
-On Linux, we **prepare** everything except the native Xcode scaffold (that
-requires macOS + CocoaPods). Copy the tenant folder to your Mac and finish:
-
-```bash
-python3 build_app.py --tenant acme --platform ios --version 2.4.1 --version-code 41
-# → /app/dist/tenants/acme/  (Capacitor project ready)
-
-# On Mac:
-rsync -r fieldcrm-server:/app/dist/tenants/acme/ ./acme/
-cd acme && yarn install && npx cap add ios && npx cap sync ios
+# On your Mac:
+rsync -r fieldcrm-server:/path/to/output/<slug>/ ./<slug>/
+cd <slug> && yarn install && npx cap add ios && npx cap sync ios
 open ios/App/App.xcworkspace
-# In Xcode: select the "App" target → Signing & Capabilities → confirm team →
-# Product → Archive → Distribute App
-```
-
-The build script has ALREADY written:
-- `capacitor.config.ts` (correct `appId`, `appName`, background color, plugin config)
-- `ios/App/App/GoogleService-Info.plist` (tenant Firebase config)
-- `ios/App/App/App.entitlements` (aps-environment=production)
-- `ios/App/App/Assets.xcassets/AppIcon.appiconset/` (18 sizes iPhone + iPad + marketing)
-- Info.plist + project.pbxproj mutations (once you run `cap add ios` on Mac)
-
-### Rebuilding after tenant updates
-
-If a tenant admin changes the logo, name, theme, or Firebase config, just re-run:
-
-```bash
-python3 build_app.py --tenant <slug> --platform <p> --version … --version-code …
-```
-
-Re-fetches manifest, regenerates icons, patches Gradle/Xcode config. All
-changes idempotent.
-
----
-
-## Testing
-
-Backend endpoint: `pytest backend/tests/test_phase10_build_manifest.py -v`
-(4 tests: auth guard, shape, unknown slug, ROOT_DOMAIN host).
-
-Smoke test the CLI end-to-end (Android prep):
-```bash
-python3 build_app.py --tenant demo --platform android \
-    --version 1.0.0 --version-code 1 --output prep --verbose
+# In Xcode: Signing & Capabilities → confirm team → Product → Archive
 ```

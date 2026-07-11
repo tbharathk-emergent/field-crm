@@ -13,6 +13,44 @@ from typing import Iterable, Optional
 log = logging.getLogger("build_app")
 
 
+# ---------- Env file (dotenv-style) ----------
+_ENV_LINE_RE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$")
+
+
+def load_env_file(path: Path, override_existing: bool = False) -> dict[str, str]:
+    """Parse a .env file and inject into os.environ.
+
+    Returns the dict of loaded values. Blank lines and lines starting with `#`
+    are ignored. Values may be optionally wrapped in single/double quotes.
+    Existing env vars are NOT overwritten unless override_existing=True.
+    """
+    if not path.exists():
+        return {}
+    loaded: dict[str, str] = {}
+    for line_no, raw in enumerate(path.read_text().splitlines(), start=1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = _ENV_LINE_RE.match(line)
+        if not m:
+            log.warning(f"{path}:{line_no}  cannot parse: {raw!r}")
+            continue
+        key, val = m.group(1), m.group(2)
+        # Strip an inline `#` comment (only if outside quotes).
+        if val and val[0] not in ("'", '"'):
+            hash_idx = val.find(" #")
+            if hash_idx >= 0:
+                val = val[:hash_idx].rstrip()
+        # Strip surrounding quotes.
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
+            val = val[1:-1]
+        loaded[key] = val
+        if override_existing or key not in os.environ:
+            os.environ[key] = val
+    log.info(f"Loaded {len(loaded)} vars from {path}")
+    return loaded
+
+
 # ---------- Logging ----------
 def configure_logging(verbose: bool = False) -> None:
     logging.basicConfig(

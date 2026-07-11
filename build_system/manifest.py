@@ -140,6 +140,26 @@ def load(backend_url: str, slug: str,
     return fetch_manifest(backend_url, slug, token)
 
 
+def list_tenants(backend_url: str,
+                 token: Optional[str] = None,
+                 super_phone: Optional[str] = None,
+                 super_otp: Optional[str] = None) -> list[dict]:
+    """Return the list of tenants visible to a super admin.
+
+    Each item has keys: id, slug, name, is_active, business_type, and a nested
+    `stats` dict with employees / dealers / customers counts.
+    """
+    if not token:
+        token = os.environ.get("SUPER_ADMIN_TOKEN") or \
+            obtain_super_token(backend_url, super_phone, super_otp)
+    log.info("Fetching tenant list")
+    data = _get_json(f"{backend_url}/api/super/tenants",
+                     headers={"Authorization": f"Bearer {token}"})
+    if not isinstance(data, list):
+        raise BuildError(f"expected a list from /super/tenants, got: {type(data).__name__}")
+    return data
+
+
 def to_debug_json(m: BuildManifest) -> str:
     """Redact large fields for logs."""
     d: dict[str, Any] = json.loads(json.dumps(m.raw))  # deep copy

@@ -46,23 +46,71 @@ PACKAGE_JSON_TMPL = {
 
 
 def out_dir_for(slug: str, base: Optional[Path] = None) -> Path:
-    base = base or Path(os.environ.get("BUILD_OUT_ROOT", "/app/dist/tenants"))
-    return base / slug
+    if base is not None:
+        return base / slug
+    # Prefer OUTPUT_DIR (new schema), then BUILD_OUT_ROOT (legacy).
+    env_root = os.environ.get("OUTPUT_DIR") or os.environ.get("BUILD_OUT_ROOT")
+    root = Path(env_root).expanduser().resolve() if env_root else Path("/app/dist/tenants")
+    return root / slug
 
 
 def copy_web_bundle(frontend_dir: Path, target: Path,
-                    force_rebuild: bool = False) -> None:
-    build_dir = frontend_dir / "build"
-    if force_rebuild or not build_dir.exists():
-        log.info("Building React bundle (yarn build)")
-        run(["yarn", "build"], cwd=frontend_dir)
-    if not build_dir.exists():
-        raise RuntimeError(f"React build failed — {build_dir} still missing")
+                    env_overrides: Optional[dict] = None,
+                    force_rebuild: bool = True) -> None:
+    """Build the React app with tenant-specific env vars, then copy into `target`.
 
-    if target.exists():
-        shutil.rmtree(target)
-    shutil.copytree(build_dir, target)
-    log.info(f"Copied React bundle → {target}")
+    We ALWAYS rebuild by default (force_rebuild=True) — different tenants have
+    different API endpoints baked into the bundle at compile time, so a cached
+    /app/frontend/build/ from a previous tenant would silently ship the wrong
+    API. Callers can opt out only when they know the env has not changed.
+
+    `env_overrides` is applied via a temporary `.env.local` in the frontend dir
+    (React reads `.env.local` at higher priority than `.env`); the file is
+    removed after the build finishes.
+    """
+    build_dir = frontend_dir / "build"
+    env_local = frontend_dir / ".env.local"
+    wrote_env_local = False
+    try:
+        if env_overrides:
+            env_local.write_text(
+                "\n".join(f"{k}={v}" for k, v in env_overrides.items()) + "\n"
+            )
+            wrote_env_local = True
+            log.info(f"Wrote {env_local} with {len(env_overrides)} tenant-specific vars")
+
+        if force_rebuild and build_dir.exists():
+            shutil.rmtree(build_dir)
+        if not build_dir.exists():
+            log.info("Building React bundle (yarn build)")
+            run(["yarn", "build"], cwd=frontend_dir)
+        if not build_dir.exists():
+            raise RuntimeError(f"React build failed — {build_dir} still missing")
+
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(build_dir, target)
+        log.info(f"Copied React bundle → {target}")
+    finally:
+        if wrote_env_local and env_local.exists():
+            env_local.unlink()
+            log.info(f"Removed temporary {env_local}")
+
+
+def wipe_stale_firebase_files(project_root: Path) -> None:
+    """Delete any leftover Firebase config files from a previous build.
+
+    Called at the start of every build so the tenant's fresh manifest is the
+    ONLY source of Firebase config, even if that tenant was later reconfigured
+    on the server to remove Firebase.
+    """
+    for stale in (
+        project_root / "android" / "app" / "google-services.json",
+        project_root / "ios" / "App" / "App" / "GoogleService-Info.plist",
+    ):
+        if stale.exists():
+            stale.unlink()
+            log.info(f"Wiped stale {stale}")
 
 
 def write_capacitor_config(project_root: Path, m: BuildManifest,
