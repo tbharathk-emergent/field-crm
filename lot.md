@@ -268,6 +268,10 @@ Shop and Employee pages used 43–62% of the window and several admin pages
    (see §9, limitation 3) — confirm and guard `FirebaseApp.configure()`.
 9. `CLAUDE.md` §5 (shells and page map) is out of date after the responsive
    rebuild and should be regenerated.
+10. **Project name — pending client confirmation.** A rename of the platform
+    brand was applied and then fully reverted on 2026-10-10; everything says
+    FieldCRM. Do not rename until the client confirms the name and how it
+    applies to one application serving multiple businesses.
 
 ## Command crib sheet (local)
 
