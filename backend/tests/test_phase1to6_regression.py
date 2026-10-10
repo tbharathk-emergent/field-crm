@@ -140,15 +140,17 @@ def test_phase3_legal_full_cycle():
     assert forb.status_code == 403
 
 
-def test_phase3_legal_public_404():
+def test_phase3_legal_unpublished_kind_serves_platform_default():
+    # Phase 10 superseded the old 404: every kind now falls back to the
+    # platform-default document so store-listing legal URLs never break.
     r = requests.get(f"{API}/public/legal/shipping", params={"slug": "demo"}, timeout=10)
-    assert r.status_code == 404
+    assert r.status_code == 200, r.text
     j = r.json()
-    detail = j.get("detail")
-    if isinstance(detail, dict):
-        assert detail.get("code") == "legal_not_found", j
-    else:
-        assert "legal_not_found" in str(j)
+    assert j.get("is_platform_default") is True, j
+    assert j.get("kind") == "shipping", j
+    # Invalid kinds still 400.
+    bad = requests.get(f"{API}/public/legal/nonsense", params={"slug": "demo"}, timeout=10)
+    assert bad.status_code == 400, bad.text
 
 
 # --------------- PHASE 4 reviewer ---------------
@@ -283,6 +285,10 @@ def test_phase5_super_shards_and_tenant_forbidden():
 # --------------- PHASE 6 iOS safe area ---------------
 def test_phase6_viewport_fit_cover_in_html():
     r = requests.get(f"{BASE_URL}/", timeout=15)
+    if "<html" not in r.text.lower():
+        # BASE_URL points straight at the backend (local split-port dev) — the
+        # frontend HTML is only served behind the combined ingress in the pod.
+        pytest.skip("BASE_URL serves the API root, not the frontend index.html")
     assert r.status_code == 200
     assert "viewport-fit=cover" in r.text, "index.html missing viewport-fit=cover"
 

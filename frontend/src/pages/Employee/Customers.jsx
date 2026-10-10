@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useApp, getLabel } from "@/context/AppContext";
 import CustomFieldsForm from "@/components/CustomFieldsForm";
+import { PageHeader, DataTable } from "@/components/Layout/Page";
 
 export default function Customers() {
   const { user, tenant, t, can } = useApp();
@@ -49,33 +50,57 @@ export default function Customers() {
   const label = getLabel(tenant, "customer_plural", "Customers");
   const singular = getLabel(tenant, "customer", "Customer");
 
+  const place = (u) => [u.village, u.district].filter(Boolean).join(", ") || "—";
+  const actions = (u) => (
+    <div className="flex gap-1 flex-shrink-0 justify-end">
+      {canWrite && (
+        <button aria-label="edit" onClick={() => openEdit(u)} className="w-9 h-9 rounded-full border border-brand-line flex items-center justify-center text-brand-mute hover:bg-brand-bg"><Pencil size={14} /></button>
+      )}
+      <a aria-label="call" href={`tel:${u.phone}`} className="w-9 h-9 rounded-full bg-brand-primary text-white flex items-center justify-center"><Phone size={14} /></a>
+    </div>
+  );
+  const searchBox = <Input placeholder={t("search")} value={search} onChange={(e) => setSearch(e.target.value)} />;
+
   return (
-    <div className="space-y-3 pb-4">
-      <div className="flex items-center justify-between">
-        <h1 className="font-display text-xl font-bold">My {label}</h1>
+    <div className="space-y-3 lg:space-y-5 pb-4">
+      <PageHeader title={`My ${label}`} subtitle={`${view.length} of ${list.length} shown`}>
+        <div className="hidden lg:block w-72">{searchBox}</div>
         {canWrite && (
           <button data-testid="add-customer-btn" onClick={openCreate}
-                  className="btn-primary text-sm px-3 py-1.5">
-            <Plus size={14} /> Add
+                  className="btn-primary text-sm px-3 py-1.5 lg:px-5 lg:py-2.5">
+            <Plus size={14} /> <span>Add<span className="hidden lg:inline"> {singular}</span></span>
           </button>
         )}
+      </PageHeader>
+      <div className="lg:hidden">{searchBox}</div>
+
+      {/* Desktop: one table. Phones: a card per customer. */}
+      <div className="hidden lg:block">
+        <DataTable
+          testid="customers-table"
+          rows={view}
+          empty={t("no_data")}
+          columns={[
+            { key: "name", header: t("name"), cell: (u) => <span className="font-medium">{u.name}</span> },
+            { key: "place", header: t("location"), cell: (u) => place(u) },
+            { key: "crops", header: "Crops", cell: (u) => u.crops ? <span className="text-brand-primary">{u.crops}</span> : "—" },
+            { key: "farm", header: "Farm size", align: "right", cell: (u) => u.farm_size_acres > 0 ? <span className="font-mono">{u.farm_size_acres} acres</span> : "—" },
+            { key: "phone", header: t("phone_short"), cell: (u) => <span className="font-mono">{u.phone}</span> },
+            { key: "actions", header: "", align: "right", cell: actions },
+          ]}
+        />
       </div>
-      <Input placeholder={t("search")} value={search} onChange={(e) => setSearch(e.target.value)} />
-      <div className="space-y-2">
+
+      <div className="space-y-2 lg:hidden">
         {view.map(u => (
           <div key={u.id} className="card-surface p-3">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="font-display font-semibold truncate">{u.name}</div>
-                <div className="text-xs text-brand-mute flex items-center gap-1 mt-1"><MapPin size={12} /> {u.village || "—"}, {u.district || "—"}</div>
+                <div className="text-xs text-brand-mute flex items-center gap-1 mt-1"><MapPin size={12} /> {place(u)}</div>
                 {u.crops && <div className="text-xs text-brand-primary flex items-center gap-1 mt-1"><Sprout size={12} /> {u.crops}</div>}
               </div>
-              <div className="flex gap-1 flex-shrink-0">
-                {canWrite && (
-                  <button onClick={() => openEdit(u)} className="w-9 h-9 rounded-full border border-brand-line flex items-center justify-center text-brand-mute"><Pencil size={14} /></button>
-                )}
-                <a href={`tel:${u.phone}`} className="w-9 h-9 rounded-full bg-brand-primary text-white flex items-center justify-center"><Phone size={14} /></a>
-              </div>
+              {actions(u)}
             </div>
             {u.farm_size_acres > 0 && (
               <div className="mt-2 flex items-center justify-between text-xs">
@@ -89,9 +114,9 @@ export default function Customers() {
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-md sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{editing ? "Edit" : "Add"} {singular}</DialogTitle></DialogHeader>
-          <div className="space-y-3 py-3">
+          <div className="grid grid-cols-1 gap-3 py-3 sm:grid-cols-2">
             <div><Label>Phone *</Label><Input data-testid="cust-phone" value={form.phone || ""} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
             <div><Label>Name *</Label><Input data-testid="cust-name" value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
             <div className="grid grid-cols-2 gap-2">
@@ -102,10 +127,9 @@ export default function Customers() {
               <div><Label>Farm (acres)</Label><Input type="number" step="0.1" value={form.farm_size_acres || 0} onChange={(e) => setForm({ ...form, farm_size_acres: +e.target.value })} /></div>
               <div><Label>Crops</Label><Input value={form.crops || ""} onChange={(e) => setForm({ ...form, crops: e.target.value })} placeholder="Cotton, Paddy" /></div>
             </div>
-            <div><Label>Address</Label><Input value={form.address || ""} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
-            <div className="pt-2 border-t border-brand-line">
-              <div className="text-xs text-brand-mute mb-2 uppercase tracking-wider">Custom Fields</div>
-              <CustomFieldsForm module="customer" data={form.custom_data || {}}
+            <div className="sm:col-span-2"><Label>Address</Label><Input value={form.address || ""} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
+            <div className="sm:col-span-2 empty:hidden">
+              <CustomFieldsForm heading="Custom Fields" module="customer" data={form.custom_data || {}}
                                 onChange={(cd) => setForm({ ...form, custom_data: cd })} />
             </div>
           </div>

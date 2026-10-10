@@ -85,6 +85,7 @@ function AwsSection() {
     aws_region: "ap-south-1",
     aws_bucket_name: "",
     aws_public_media_host: "",
+    presign_ttl_seconds: 900,
   });
 
   useEffect(() => {
@@ -98,6 +99,7 @@ function AwsSection() {
           aws_region: r.data.aws_region || "ap-south-1",
           aws_bucket_name: r.data.aws_bucket_name || "",
           aws_public_media_host: r.data.aws_public_media_host || "",
+          presign_ttl_seconds: r.data.presign_ttl_seconds || 900,
         });
       } catch (e) {
         toast.error("Failed to load AWS settings");
@@ -106,13 +108,17 @@ function AwsSection() {
   }, []);
 
   const save = async () => {
-    if (!form.aws_secret_access_key) {
+    // A blank secret is allowed once one is saved — the backend keeps the stored one.
+    if (!form.aws_secret_access_key && !saved?.aws_secret_access_key_masked) {
       toast.error("Enter the AWS secret access key (it is not shown after saving)");
       return;
     }
     setSaving(true);
     try {
-      const r = await api.put("/super/aws-credentials", form);
+      const r = await api.put("/super/aws-credentials", {
+        ...form,
+        presign_ttl_seconds: Number(form.presign_ttl_seconds) || 900,
+      });
       const verify = r.data.verify || {};
       if (verify.ok) toast.success("AWS credentials saved & bucket verified");
       else if (verify.attempted) toast.warning(`Saved, but bucket check failed: ${verify.error?.slice(0, 100)}`);
@@ -135,7 +141,7 @@ function AwsSection() {
         <StatusChip ok={saved?.configured} okLabel="Configured" offLabel="Not configured" />
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="AWS_ACCESS_KEY_ID" testid="aws-access-key-id">
           <Input value={form.aws_access_key_id}
                  onChange={(e) => setForm({ ...form, aws_access_key_id: e.target.value.trim() })}
@@ -157,10 +163,15 @@ function AwsSection() {
                  onChange={(e) => setForm({ ...form, aws_bucket_name: e.target.value.trim() })}
                  placeholder="my-bucket" />
         </Field>
-        <Field label="AWS_PUBLIC_MEDIA_HOST" hint="e.g. media.acme.com (CDN host in front of S3)" className="sm:col-span-2" testid="aws-public-host">
+        <Field label="AWS_PUBLIC_MEDIA_HOST" hint="e.g. media.acme.com (CDN host in front of S3)" testid="aws-public-host">
           <Input value={form.aws_public_media_host}
                  onChange={(e) => setForm({ ...form, aws_public_media_host: e.target.value.trim() })}
                  placeholder="media.your-domain.com" />
+        </Field>
+        <Field label="PRESIGN TTL (seconds)" hint="How long upload URLs stay valid (60–86400, default 900)" testid="aws-presign-ttl">
+          <Input type="number" min={60} max={86400} value={form.presign_ttl_seconds}
+                 onChange={(e) => setForm({ ...form, presign_ttl_seconds: e.target.value })}
+                 placeholder="900" />
         </Field>
       </div>
 
@@ -228,7 +239,7 @@ function FirebaseSection() {
             No Firebase projects yet. Upload a service-account JSON to get started.
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {projects.map((p) => (
               <div key={p.id} className="card-surface p-4 space-y-2" data-testid={`firebase-project-${p.project_id}`}>
                 <div className="flex items-start justify-between gap-2">
@@ -350,7 +361,7 @@ function TenantsSection() {
   if (!tenants.length) return <div className="text-brand-mute">No tenants yet.</div>;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[240px_1fr]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[240px_1fr]">
       <aside className="card-surface p-2 space-y-1 max-h-[600px] overflow-y-auto" data-testid="tenant-list">
         {tenants.map((t) => (
           <button key={t.id}

@@ -26,12 +26,14 @@ export default function Settings() {
   if (!s) return <div className="text-brand-mute">Loading...</div>;
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6">
       <div>
         <h1 className="font-display text-3xl font-bold">Platform Settings</h1>
         <p className="text-brand-mute text-sm mt-1">Configure storage and SMS providers</p>
       </div>
 
+      {/* Two cards side by side once the window is wide enough. */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2 xl:items-start">
       <div className="card-surface p-6 space-y-4">
         <div className="flex items-center gap-2 mb-2">
           <Cloud size={20} className="text-brand-primary" />
@@ -59,17 +61,22 @@ export default function Settings() {
           <h2 className="font-display text-lg font-semibold">SMS / WhatsApp Provider</h2>
         </div>
         <p className="text-sm text-brand-mute">
-          Currently using <strong>Mock OTP</strong>. Pingbix integration placeholder below.
+          Active provider: <strong data-testid="sms-active-provider">{s.sms?.active_provider || "mock"}</strong>.
+          Set provider to <code>pingbix</code> and fill the API key + sender ID to send real OTP SMS.
+          Endpoint and DLT template IDs come from <code>PINGBIX_*</code> vars in <code>backend/.env</code>.
+          Secrets are stored server-side and shown masked; leave the masked value untouched to keep it.
         </p>
         <div className="grid sm:grid-cols-2 gap-3">
           <div>
             <Label>Provider</Label>
-            <Input value={s.sms_provider || "mock"} onChange={(e) => setS({ ...s, sms_provider: e.target.value })} placeholder="mock | pingbix | twilio" />
+            <Input value={s.sms_provider || "mock"} onChange={(e) => setS({ ...s, sms_provider: e.target.value })} placeholder="mock | pingbix" />
           </div>
-          <div><Label>API Key</Label><Input type="password" value={s.sms_api_key || ""} onChange={(e) => setS({ ...s, sms_api_key: e.target.value })} /></div>
-          <div><Label>Sender ID</Label><Input value={s.sms_sender_id || ""} onChange={(e) => setS({ ...s, sms_sender_id: e.target.value })} /></div>
+          <div><Label>API Key</Label><Input type="password" value={s.sms_api_key || ""} onChange={(e) => setS({ ...s, sms_api_key: e.target.value })} placeholder="(masked after save)" /></div>
+          <div><Label>Sender ID</Label><Input value={s.sms_sender_id || ""} onChange={(e) => setS({ ...s, sms_sender_id: e.target.value })} placeholder="6-char DLT sender id" /></div>
           <div className="flex items-center gap-3"><Switch checked={!!s.whatsapp_enabled} onCheckedChange={(v) => setS({ ...s, whatsapp_enabled: v })} /><Label>WhatsApp Enabled</Label></div>
         </div>
+      </div>
+
       </div>
 
       <button data-testid="save-settings-btn" onClick={save} className="btn-primary">Save Settings</button>

@@ -35,13 +35,18 @@ def is_reviewer_phone(phone: str) -> bool:
 
 
 def make_token(user_id: str, tenant_id: Optional[str], role: str, phone: str) -> str:
+    now = datetime.now(timezone.utc)
     payload = {
         "sub": user_id,
         "tid": tenant_id,
         "role": role,
         "phone": phone,
-        "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_TTL_HOURS),
-        "iat": datetime.now(timezone.utc),
+        "exp": now + timedelta(hours=JWT_TTL_HOURS),
+        "iat": now,
+        # Sub-second issue time: JWT `iat` is whole seconds, which makes a
+        # token issued in the same second as a revocation indistinguishable
+        # from one issued just before it. The validator prefers this claim.
+        "iatf": now.timestamp(),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
 

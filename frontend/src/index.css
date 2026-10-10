@@ -59,6 +59,17 @@ code {
         --brand-ink: #1C2833;
         --brand-mute: #566573;
         --brand-line: #E5E7EB;
+
+        /* Same colours as "r g b" channels, for Tailwind opacity modifiers. */
+        --brand-primary-rgb: 44 94 67;
+        --brand-primary-hover-rgb: 30 66 47;
+        --brand-secondary-rgb: 211 84 0;
+        --brand-secondary-hover-rgb: 168 67 0;
+        --brand-surface-rgb: 255 255 255;
+        --brand-bg-rgb: 249 248 246;
+        --brand-ink-rgb: 28 40 51;
+        --brand-mute-rgb: 86 101 115;
+        --brand-line-rgb: 229 231 235;
     }
     .dark {
         --background: 0 0% 8%;
@@ -160,6 +171,10 @@ code {
 /* Fixed page bottoms — mobile bottom nav, sticky action bars — must sit
    above the iOS home-indicator area. */
 .fixed-bottom-safe { bottom: var(--sa-bottom); }
+
+/* Page content inside a bottom-nav shell: clear the fixed tab bar AND the
+   home-indicator inset it extends into, so the last row is never hidden. */
+.pb-bottom-nav { padding-bottom: calc(5.5rem + var(--sa-bottom)); }
 
 /* Sonner toaster offset. Sonner mounts a container at [data-sonner-toaster];
    push it below the notch on the top and above the home-indicator on the

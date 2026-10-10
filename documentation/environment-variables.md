@@ -41,6 +41,37 @@ This document catalogs every environment variable used by the FieldCRM SaaS back
 
 If any S3 var is unset, `POST /api/uploads/presign` returns **503** with a clear message; the rest of the app continues to run.
 
+> S3 credentials (including `AWS_PUBLIC_MEDIA_HOST` and the presign TTL) can
+> also be entered at runtime via **Super Admin → Cloud** — they are stored in
+> Mongo (`platform_settings.aws_credentials`), hot-applied without a restart,
+> reloaded at startup, and take precedence over the env values. The secret key
+> is only ever returned masked.
+
+### SMS / OTP — Pingbix
+
+All optional. Without them (or with `SMS_PROVIDER=mock`), OTP stays in mock
+mode: the fixed `DEMO_OTP` / `SUPER_ADMIN_OTP` values are shown on screen, so
+local development never needs live SMS credentials. The super admin phone and
+the reviewer phone (`9898989898`) always use their fixed OTPs even when
+Pingbix is active.
+
+| Variable | Description |
+|----------|-------------|
+| `SMS_PROVIDER` | `mock` (default) or `pingbix`. Can be overridden at runtime via Super Admin → Settings. |
+| `PINGBIX_BASE_URL` | Full send-SMS endpoint URL from the Pingbix integration sheet. |
+| `PINGBIX_API_KEY` | Pingbix API key (runtime override: Super Admin → Settings → API Key). |
+| `PINGBIX_SENDER_ID` | 6-char DLT-approved sender id (runtime override: Settings → Sender ID). |
+| `PINGBIX_ENTITY_ID` | DLT principal entity id (optional, appended to the payload). |
+| `PINGBIX_TEMPLATE_ID` | DLT content template id (optional, appended to the payload). |
+| `PINGBIX_OTP_TEMPLATE` | Message text; `{otp}` and `{app}` are substituted. Must match the registered DLT template. |
+| `PINGBIX_TIMEOUT_SECONDS` | Gateway HTTP timeout. Default `10`. |
+
+When Pingbix is active, OTPs are random 6-digit codes stored HMAC-hashed in
+the `otp_codes` collection with a 5-minute expiry, 30-second resend cooldown,
+5 verify attempts, and single-use semantics. If `SMS_PROVIDER=pingbix` but the
+`PINGBIX_*` config is incomplete, the backend logs a warning and falls back to
+mock so login never breaks.
+
 ### Planned — Phase 5 — Firebase Cloud Messaging (Sharded)
 
 Each shard holds up to 15 tenants. Increment as tenant count grows.

@@ -11,6 +11,7 @@ import { useApp, getLabel } from "@/context/AppContext";
 import { postOrQueue } from "@/lib/offline";
 import { startTracking, stopTracking, resumeIfActive } from "@/lib/gpsTracker";
 import OfflineIndicator from "@/components/OfflineIndicator";
+import { PageHeader } from "@/components/Layout/Page";
 
 export default function Home() {
   const { tenant, user, t, can, hasFeature } = useApp();
@@ -79,82 +80,81 @@ export default function Home() {
   const checkedOut = att && att.check_out_at;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="text-sm text-brand-mute">{t("welcome")},</div>
-          <h1 className="font-display text-2xl font-bold">{user?.name}</h1>
-        </div>
+    <div className="space-y-4 lg:space-y-6">
+      <PageHeader eyebrow={`${t("welcome")},`} title={user?.name} subtitle={tenant?.name}>
         <OfflineIndicator />
-      </div>
+      </PageHeader>
 
-      {/* Target progress */}
-      {target && target.target > 0 && (
-        <div className="card-surface p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <TargetIcon className="text-brand-primary" size={16} />
-              <div className="label-up">This month · Target</div>
-            </div>
-            <div className="text-xs font-mono text-brand-mute">{target.month}</div>
-          </div>
-          <div className="flex items-baseline gap-2 mb-2">
-            <span className="font-display text-2xl font-bold">₹{Math.round(target.actual).toLocaleString("en-IN")}</span>
-            <span className="text-sm text-brand-mute">/ ₹{target.target.toLocaleString("en-IN")}</span>
-          </div>
-          <div className="h-2 rounded-full bg-brand-line overflow-hidden">
-            <div className="h-full transition-all" style={{
-              width: `${Math.min(100, target.percent)}%`,
-              background: target.percent >= 100 ? "#27AE60" : target.percent >= 60 ? "#F39C12" : "#E74C3C",
-            }} />
-          </div>
-          <div className="mt-1 text-right text-xs font-mono">{target.percent}% achieved</div>
-        </div>
-      )}
-
-      {/* Attendance card */}
-      <div className="card-surface p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <div className="label-up">{t("today")} · {t("attendance")}</div>
-            {att?.check_in_at && (
-              <div className="text-xs text-brand-mute mt-1">
-                In: {new Date(att.check_in_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
-                {att.check_out_at && ` · Out: ${new Date(att.check_out_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`}
+      {/* Target + attendance sit side by side once there is room. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {target && target.target > 0 && (
+          <div className="card-surface p-4 lg:p-5">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <TargetIcon className="text-brand-primary" size={16} />
+                <div className="label-up">This month · Target</div>
               </div>
-            )}
+              <div className="text-xs font-mono text-brand-mute">{target.month}</div>
+            </div>
+            <div className="flex items-baseline gap-2 mb-2">
+              <span className="font-display text-2xl lg:text-3xl font-bold">₹{Math.round(target.actual).toLocaleString("en-IN")}</span>
+              <span className="text-sm text-brand-mute">/ ₹{target.target.toLocaleString("en-IN")}</span>
+            </div>
+            <div className="h-2 rounded-full bg-brand-line overflow-hidden">
+              <div className="h-full transition-all" style={{
+                width: `${Math.min(100, target.percent)}%`,
+                background: target.percent >= 100 ? "#27AE60" : target.percent >= 60 ? "#F39C12" : "#E74C3C",
+              }} />
+            </div>
+            <div className="mt-1 text-right text-xs font-mono">{target.percent}% achieved</div>
           </div>
-          <div className={`text-xs px-2 py-1 rounded-full font-semibold ${checkedOut ? "bg-emerald-100 text-emerald-700" : checkedIn ? "bg-orange-100 text-orange-700" : "bg-gray-100 text-gray-600"}`}>
-            {checkedOut ? "Completed" : checkedIn ? "Tracking GPS" : "Not Started"}
+        )}
+
+        <div className={`card-surface p-4 lg:p-5 ${target && target.target > 0 ? "" : "lg:col-span-2"}`}>
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="label-up">{t("today")} · {t("attendance")}</div>
+              {att?.check_in_at && (
+                <div className="text-xs lg:text-sm text-brand-mute mt-1">
+                  In: {new Date(att.check_in_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                  {att.check_out_at && ` · Out: ${new Date(att.check_out_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`}
+                </div>
+              )}
+            </div>
+            <div className={`text-xs px-2 py-1 rounded-full font-semibold ${checkedOut ? "bg-emerald-100 text-emerald-700" : checkedIn ? "bg-orange-100 text-orange-700" : "bg-gray-100 text-gray-600"}`}>
+              {checkedOut ? "Completed" : checkedIn ? "Tracking GPS" : "Not Started"}
+            </div>
           </div>
+          {!checkedIn && !checkedOut && (
+            <button data-testid="checkin-btn" onClick={checkIn} disabled={loading} className="btn-primary w-full lg:w-auto lg:min-w-[220px] h-14 lg:h-12 text-base">
+              <LogIn size={18} /> {t("check_in")}
+            </button>
+          )}
+          {checkedIn && (
+            <button data-testid="checkout-btn" onClick={checkOut} disabled={loading} className="btn-secondary w-full lg:w-auto lg:min-w-[220px] h-14 lg:h-12 text-base">
+              <LogOut size={18} /> {t("check_out")}
+            </button>
+          )}
+          {checkedOut && <p className="hidden lg:block text-sm text-brand-mute">Attendance for today is complete.</p>}
         </div>
-        {!checkedIn && !checkedOut && (
-          <button data-testid="checkin-btn" onClick={checkIn} disabled={loading} className="btn-primary w-full h-14 text-base">
-            <LogIn size={18} /> {t("check_in")}
-          </button>
-        )}
-        {checkedIn && (
-          <button data-testid="checkout-btn" onClick={checkOut} disabled={loading} className="btn-secondary w-full h-14 text-base">
-            <LogOut size={18} /> {t("check_out")}
-          </button>
-        )}
       </div>
 
-      {/* Grid */}
-      <div className="grid grid-cols-2 gap-3">
-        {card(Users, getLabel(tenant, "dealer_plural", "Dealers"), `${base}/dealers`, "#2C5E43", "card-dealers", "dealers")}
-        {card(Sprout, getLabel(tenant, "customer_plural", "Customers"), `${base}/customers`, "#27AE60", "card-customers", "customers")}
-        {card(FileText, t("visit_report"), `${base}/visit`, "#D35400", "card-visit", "visits")}
-        {card(Wallet, t("collection_entry"), `${base}/collection`, "#16A085", "card-collection", "collections")}
-        {card(ShoppingCart, t("sales_entry"), `${base}/sales`, "#2980B9", "card-sales", "sales")}
-        {card(ClipboardList, t("dcr"), `${base}/dcr`, "#8E44AD", "card-dcr", "dcr")}
-        {card(MessageSquare, getLabel(tenant, "customer", t("customer")) + " Enquiry", `${base}/enquiry`, "#E67E22", "card-enquiry", "enquiries")}
-        {card(Package, t("catalogue"), `${base}/catalogue`, "#3498DB", "card-catalogue", "products")}
-        {card(CalendarDays, "Leaves", `${base}/leaves`, "#9B59B6", "card-leaves", "leaves")}
-        {card(Bell, t("notifications"), `${base}/notifications`, "#E74C3C", "card-notifications")}
-        {hasFeature("crop_advisor") && card(Leaf, "Crop Advisor", `${base}/advisor`, "#27AE60", "card-crop-advisor")}
+      <div>
+        <h2 className="hidden lg:block font-display font-semibold text-base mb-3">Quick actions</h2>
+        <div className="grid grid-cols-2 md:grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3 lg:gap-4">
+          {card(Users, getLabel(tenant, "dealer_plural", "Dealers"), `${base}/dealers`, "#2C5E43", "card-dealers", "dealers")}
+          {card(Sprout, getLabel(tenant, "customer_plural", "Customers"), `${base}/customers`, "#27AE60", "card-customers", "customers")}
+          {card(FileText, t("visit_report"), `${base}/visit`, "#D35400", "card-visit", "visits")}
+          {card(Wallet, t("collection_entry"), `${base}/collection`, "#16A085", "card-collection", "collections")}
+          {card(ShoppingCart, t("sales_entry"), `${base}/sales`, "#2980B9", "card-sales", "sales")}
+          {card(ClipboardList, t("dcr"), `${base}/dcr`, "#8E44AD", "card-dcr", "dcr")}
+          {card(MessageSquare, getLabel(tenant, "customer", t("customer")) + " Enquiry", `${base}/enquiry`, "#E67E22", "card-enquiry", "enquiries")}
+          {card(Package, t("catalogue"), `${base}/catalogue`, "#3498DB", "card-catalogue", "products")}
+          {card(CalendarDays, "Leaves", `${base}/leaves`, "#9B59B6", "card-leaves", "leaves")}
+          {card(Bell, t("notifications"), `${base}/notifications`, "#E74C3C", "card-notifications")}
+          {hasFeature("crop_advisor") && card(Leaf, "Crop Advisor", `${base}/advisor`, "#27AE60", "card-crop-advisor")}
+        </div>
       </div>
     </div>
   );
 }
-

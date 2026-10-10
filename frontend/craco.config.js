@@ -58,6 +58,18 @@ let webpackConfig = {
       return webpackConfig;
     },
   },
+  jest: {
+    configure: {
+      moduleNameMapper: {
+        // Mirror the webpack '@' → src alias for unit tests.
+        "^@/(.*)$": "<rootDir>/src/$1",
+        // react-router 7 publishes its entry points through package "exports",
+        // which the Jest 27 resolver bundled with react-scripts 5 cannot read.
+        "^react-router-dom$": "<rootDir>/node_modules/react-router-dom/dist/index.js",
+        "^react-router/dom$": "<rootDir>/node_modules/react-router/dist/development/dom-export.js",
+      },
+    },
+  },
 };
 
 webpackConfig.devServer = (devServerConfig) => {

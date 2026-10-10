@@ -11,8 +11,9 @@ import { useApp } from "@/context/AppContext";
  * <CustomFieldsForm module="dealer" data={form.custom_data || {}} onChange={(cd) => setForm({...form, custom_data: cd})} />
  * Prefers cached tenant custom fields from AppContext; falls back to a direct API call.
  * For customer PWA self-signup pass `viewerRole="customer"` to filter to visible-to-customer only.
+ * `heading` renders a divider + section title, but only when the module has fields to show.
  */
-export default function CustomFieldsForm({ module, data = {}, onChange, viewerRole = null, compact = false }) {
+export default function CustomFieldsForm({ module, data = {}, onChange, viewerRole = null, compact = false, heading = null }) {
   const app = useApp();
   const cached = app?.customFieldsFor ? app.customFieldsFor(module) : null;
   const [fields, setFields] = useState(cached || []);
@@ -42,7 +43,7 @@ export default function CustomFieldsForm({ module, data = {}, onChange, viewerRo
     setVal(key, next);
   };
 
-  return (
+  const body = (
     <div className={compact ? "space-y-2" : "space-y-3"}>
       {filtered.map((f) => {
         const val = data[f.field_key];
@@ -108,6 +109,14 @@ export default function CustomFieldsForm({ module, data = {}, onChange, viewerRo
           </div>
         );
       })}
+    </div>
+  );
+
+  if (!heading) return body;
+  return (
+    <div className="pt-2 border-t border-brand-line">
+      <div className="text-xs text-brand-mute mb-2 uppercase tracking-wider">{heading}</div>
+      {body}
     </div>
   );
 }

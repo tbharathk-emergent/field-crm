@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { Users, MapPin, TrendingUp, Wallet, CalendarDays, Target as TargetIcon, ChevronRight } from "lucide-react";
 import { api } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
+import { PageHeader } from "@/components/Layout/Page";
 
 const Kpi = ({ icon: Icon, label, value, to, accent, testid }) => (
   <Link to={to} data-testid={testid} className="card-surface p-4 hover:shadow-md active:scale-[0.98] transition-all block">
@@ -40,11 +41,12 @@ export default function ManagerDashboard() {
   const teamPct = teamTotal > 0 ? Math.round(teamActual / teamTotal * 100) : 0;
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="font-display text-2xl font-bold">Hi, {user?.name?.split(" ")[0]}</h1>
-        <p className="text-brand-mute text-xs mt-0.5">Your team snapshot</p>
-      </div>
+    <div className="space-y-5 lg:space-y-6">
+      <PageHeader title={`Hi, ${user?.name?.split(" ")[0] || ""}`} subtitle="Your team snapshot" />
+
+      {/* Target + KPIs in the main column, leaderboard beside them on desktop. */}
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3 xl:gap-6 xl:items-start">
+      <div className="space-y-5 xl:col-span-2">
 
       {/* Team target progress hero */}
       {teamTotal > 0 && (
@@ -70,7 +72,7 @@ export default function ManagerDashboard() {
         </Link>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 lg:gap-4">
         <Kpi icon={Users} label="Team" value={k.employees ?? "—"} accent="#2C5E43"
              testid="kpi-team" to={`${base}/team`} />
         <Kpi icon={MapPin} label="Checked-in" value={k.attendance_today ?? "—"} accent="#27AE60"
@@ -85,7 +87,9 @@ export default function ManagerDashboard() {
              testid="kpi-targets" to={`${base}/targets`} />
       </div>
 
-      <div className="card-surface p-4">
+      </div>
+
+      <div className="card-surface p-4 lg:p-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-display text-base font-semibold">Top Performers</h2>
           <Link to={`${base}/targets`} className="text-xs text-brand-primary">All →</Link>
@@ -102,6 +106,7 @@ export default function ManagerDashboard() {
             <div className="text-sm text-brand-mute">{t("no_data")}</div>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

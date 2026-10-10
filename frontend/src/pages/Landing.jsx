@@ -54,8 +54,8 @@ export default function Landing() {
         </div>
       </header>
 
-      <section className="max-w-7xl mx-auto px-4 sm:px-8 py-10 sm:py-16 grid lg:grid-cols-2 gap-12 items-center">
-        <div className="space-y-6">
+      <section className="max-w-7xl mx-auto px-4 sm:px-8 py-10 sm:py-16 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+        <div className="space-y-6 min-w-0">
           <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-secondary/10 text-brand-secondary text-xs font-semibold tracking-wider uppercase">
             Multi-Tenant SaaS · White-Label PWA
           </span>
@@ -77,7 +77,7 @@ export default function Landing() {
                   value={tenantSlug}
                   onChange={(e) => setTenantSlug(e.target.value)}
                   placeholder={t("tenant_placeholder")}
-                  className="bg-transparent flex-1 outline-none text-sm"
+                  className="bg-transparent flex-1 min-w-0 outline-none text-sm"
                 />
               </div>
             </div>

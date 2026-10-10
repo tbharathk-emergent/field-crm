@@ -41,6 +41,7 @@ import tenant_resolver
 import s3_presign
 import fcm_service
 import firebase_provisioning
+import sms_service
 
 
 ROOT_DIR = Path(__file__).parent
@@ -130,6 +131,8 @@ async def ensure_indexes():
     # Phase 8 — Per-tenant Firebase config + Firebase projects
     await db.firebase_projects.create_index("project_id", unique=True)
     await db.tenant_firebase_config.create_index("tenant_id", unique=True)
+    # Pingbix OTP — one pending OTP per phone; expiry enforced in code (ISO strings).
+    await db.otp_codes.create_index("phone", unique=True)
 
 
 async def _hydrate_cloud_credentials():
@@ -148,7 +151,18 @@ async def _hydrate_cloud_credentials():
             "AWS_S3_BUCKET": creds.get("aws_bucket_name", ""),
             "AWS_PUBLIC_MEDIA_HOST": creds.get("aws_public_media_host", ""),
         })
+        if creds.get("presign_ttl_seconds"):
+            s3_presign.apply_runtime_credentials({"AWS_S3_PRESIGN_TTL_SECONDS": str(creds["presign_ttl_seconds"])})
         logger.info("AWS credentials loaded from DB (bucket=%s)", creds.get("aws_bucket_name"))
+
+
+async def _hydrate_sms_settings():
+    """Load SMS provider settings saved via Super Admin → Settings into
+    sms_service. Env vars remain the fallback; no-ops on empty DB."""
+    s = await db.platform_settings.find_one({"id": "platform"})
+    if s:
+        sms_service.apply_runtime_sms_settings(s)
+        logger.info("SMS settings loaded (active provider=%s)", sms_service.active_provider())
 
 
 # Phase 4 — Session revocation: reject tokens issued before user.token_revoked_after.
@@ -167,9 +181,11 @@ async def _session_validator(payload: dict) -> None:
     if not u.get("is_active", True):
         raise HTTPException(401, "Account disabled")
     revoked_after = u.get("token_revoked_after")
-    iat = payload.get("iat")
+    # Prefer the sub-second `iatf` claim; legacy tokens only carry the
+    # whole-second `iat`, for which the strict comparison stays conservative.
+    iat = payload.get("iatf") or payload.get("iat")
     if revoked_after and iat:
-        # `iat` is a numeric Unix timestamp per PyJWT; convert revoked_after ISO → epoch.
+        # Numeric Unix timestamp per PyJWT; convert revoked_after ISO → epoch.
         try:
             from datetime import datetime as _dt
             rev_ts = _dt.fromisoformat(revoked_after.replace("Z", "+00:00")).timestamp()
@@ -188,6 +204,7 @@ async def startup():
     await ensure_indexes()
     set_session_validator(_session_validator)  # Phase 4 — attach revocation check to all Bearer requests.
     await _hydrate_cloud_credentials()  # Phase 8 — load AWS keys from DB if present.
+    await _hydrate_sms_settings()  # Pingbix — load SMS provider settings from DB if present.
     try:
         await seed_all(db)
     except Exception as e:
@@ -256,7 +273,42 @@ async def request_otp(payload: OtpRequestIn):
     if not phone or len(phone) < 6:
         raise HTTPException(400, "Invalid phone")
     is_sa = is_super_admin_phone(phone)
-    # For MVP: just log and return (frontend shows mock OTP)
+
+    # Super admin and the App Store reviewer always use their fixed OTPs so
+    # builds/review flows never depend on a live SMS gateway.
+    fixed_otp_phone = is_sa or is_reviewer_phone(phone)
+
+    if not fixed_otp_phone and sms_service.active_provider() != "mock":
+        # Real SMS path (Pingbix): generate, store hashed, send. Never reveal.
+        existing = await db.otp_codes.find_one({"phone": phone})
+        now = datetime.now(timezone.utc)
+        if existing:
+            try:
+                last = datetime.fromisoformat(existing.get("created_at", "").replace("Z", "+00:00"))
+                wait = sms_service.OTP_RESEND_COOLDOWN_SECONDS - (now - last).total_seconds()
+                if wait > 0:
+                    raise HTTPException(429, detail={"code": "otp_cooldown",
+                                                     "message": f"Please wait {int(wait) + 1}s before requesting a new OTP."})
+            except HTTPException:
+                raise
+            except Exception:
+                pass  # malformed timestamp — allow resend
+        otp = sms_service.generate_otp()
+        sent = sms_service.send_otp_sms(phone, otp, payload.channel)
+        if not sent.get("ok"):
+            raise HTTPException(502, detail={"code": "sms_send_failed",
+                                             "message": "Could not send OTP SMS. Please try again."})
+        await db.otp_codes.update_one(
+            {"phone": phone},
+            {"$set": {"phone": phone, "otp_hash": sms_service.hash_otp(phone, otp),
+                      "attempts": 0, "created_at": now_iso(),
+                      "expires_at": (now + timedelta(seconds=sms_service.OTP_TTL_SECONDS)).isoformat()}},
+            upsert=True,
+        )
+        return {"ok": True, "is_super_admin": is_sa, "channel": payload.channel,
+                "provider": sent.get("provider"), "message": "OTP sent via SMS."}
+
+    # Mock path (local dev / MVP): fixed OTP, exposed so users can see it on screen.
     otp = expected_otp(phone)
     logger.info(f"[MOCK OTP] phone={phone} otp={otp} channel={payload.channel}")
     return {
@@ -268,11 +320,49 @@ async def request_otp(payload: OtpRequestIn):
     }
 
 
+async def _check_otp(phone: str, otp: str) -> None:
+    """Validate the submitted OTP. Raises HTTPException(401/429) on failure.
+
+    Fixed-OTP phones (super admin, reviewer) always validate against env OTPs.
+    Other phones validate against the stored Pingbix OTP when one exists;
+    otherwise (mock mode) against DEMO_OTP — the original MVP behaviour.
+    """
+    if is_super_admin_phone(phone) or is_reviewer_phone(phone):
+        if otp != expected_otp(phone):
+            raise HTTPException(401, "Invalid OTP")
+        return
+
+    rec = await db.otp_codes.find_one({"phone": phone})
+    if rec:
+        try:
+            exp = datetime.fromisoformat(rec.get("expires_at", "").replace("Z", "+00:00"))
+        except Exception:
+            exp = datetime.now(timezone.utc)  # malformed → treat as expired
+        if datetime.now(timezone.utc) >= exp:
+            await db.otp_codes.delete_one({"phone": phone})
+            raise HTTPException(401, detail={"code": "otp_expired", "message": "OTP expired. Request a new one."})
+        if int(rec.get("attempts") or 0) >= sms_service.OTP_MAX_ATTEMPTS:
+            await db.otp_codes.delete_one({"phone": phone})
+            raise HTTPException(429, detail={"code": "otp_locked", "message": "Too many attempts. Request a new OTP."})
+        if not sms_service.verify_otp_hash(phone, otp, rec.get("otp_hash", "")):
+            await db.otp_codes.update_one({"phone": phone}, {"$inc": {"attempts": 1}})
+            raise HTTPException(401, "Invalid OTP")
+        await db.otp_codes.delete_one({"phone": phone})  # single-use
+        return
+
+    # No stored OTP. In mock mode fall back to the fixed demo OTP; with a real
+    # provider active an un-requested OTP must never validate.
+    if sms_service.active_provider() == "mock":
+        if otp != expected_otp(phone):
+            raise HTTPException(401, "Invalid OTP")
+        return
+    raise HTTPException(401, detail={"code": "otp_not_requested", "message": "OTP expired or not requested. Request a new one."})
+
+
 @api.post("/auth/verify-otp")
 async def verify_otp(payload: OtpVerifyIn):
     phone = payload.phone.strip()
-    if payload.otp != expected_otp(phone):
-        raise HTTPException(401, "Invalid OTP")
+    await _check_otp(phone, payload.otp)
 
     # Super admin path
     if is_super_admin_phone(phone):
@@ -614,13 +704,30 @@ async def super_analytics(user: dict = Depends(require_roles("super_admin"))):
 
 
 # ---------------- Super Admin: Platform Settings ----------------
+# Secrets in this document are only ever returned masked. PATCH ignores masked
+# values so a round-trip of the settings form never corrupts stored secrets.
+_SETTINGS_SECRET_FIELDS = ("aws_s3_secret_key", "sms_api_key")
+
+
+def _is_masked(v: Optional[str]) -> bool:
+    return bool(v) and ("…" in v or v == "***")
+
+
+def _masked_settings(s: dict) -> dict:
+    s = dict(clean(s))
+    for f in _SETTINGS_SECRET_FIELDS:
+        s[f] = _mask(s.get(f) or "")
+    s["sms"] = sms_service.status()  # diagnostic: effective provider, no secrets
+    return s
+
+
 @api.get("/super/settings")
 async def get_settings(user: dict = Depends(require_roles("super_admin"))):
     s = await db.platform_settings.find_one({"id": "platform"})
     if not s:
         s = PlatformSettings().model_dump()
         await db.platform_settings.insert_one(s)
-    return clean(s)
+    return _masked_settings(s)
 
 
 class SettingsIn(BaseModel):
@@ -638,10 +745,16 @@ class SettingsIn(BaseModel):
 @api.patch("/super/settings")
 async def update_settings(payload: SettingsIn, user: dict = Depends(require_roles("super_admin"))):
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # A masked secret echoed back from the GET form means "unchanged" — drop it.
+    for f in _SETTINGS_SECRET_FIELDS:
+        if _is_masked(updates.get(f)):
+            updates.pop(f)
     updates["updated_at"] = now_iso()
     await db.platform_settings.update_one({"id": "platform"}, {"$set": updates}, upsert=True)
     s = await db.platform_settings.find_one({"id": "platform"})
-    return clean(s)
+    # Hot-apply SMS provider changes (mirrors the AWS credentials flow).
+    sms_service.apply_runtime_sms_settings(s)
+    return _masked_settings(s)
 
 
 # ---------------- Tenant Admin: Tenant branding / labels ----------------
@@ -762,7 +875,9 @@ async def update_user(user_id: str, payload: UserIn, user: dict = Depends(requir
 
 @api.delete("/tenant/users/{user_id}")
 async def delete_user(user_id: str, user: dict = Depends(require_roles("tenant_admin"))):
-    await db.users.update_one({"id": user_id, "tenant_id": user["tid"]}, {"$set": {"is_active": False}})
+    # Deactivate (recoverable via PATCH) + revoke all live sessions immediately.
+    await db.users.update_one({"id": user_id, "tenant_id": user["tid"]},
+                              {"$set": {"is_active": False, "token_revoked_after": now_iso()}})
     return {"ok": True}
 
 
@@ -2939,10 +3054,12 @@ async def super_push_shards(user: dict = Depends(require_roles("super_admin"))):
 # ==================== PHASE 8: CLOUD CREDENTIALS + PER-TENANT FIREBASE ====================
 class AwsCredentialsIn(BaseModel):
     aws_access_key_id: str
-    aws_secret_access_key: str
+    # Optional on update: blank keeps the previously-saved secret ("leave blank to keep saved").
+    aws_secret_access_key: Optional[str] = ""
     aws_region: str
     aws_bucket_name: str
     aws_public_media_host: Optional[str] = ""
+    presign_ttl_seconds: Optional[int] = None  # None = keep current (default 900)
 
 
 def _mask(secret: str) -> str:
@@ -2965,6 +3082,7 @@ async def get_aws_credentials(user: dict = Depends(require_roles("super_admin"))
         "aws_region": v.get("aws_region", ""),
         "aws_bucket_name": v.get("aws_bucket_name", ""),
         "aws_public_media_host": v.get("aws_public_media_host", ""),
+        "presign_ttl_seconds": v.get("presign_ttl_seconds") or 900,
     }
 
 
@@ -2977,6 +3095,19 @@ async def put_aws_credentials(payload: AwsCredentialsIn,
     server restart. Bucket + region are validated by calling `head_bucket`.
     """
     value = payload.model_dump()
+    # Blank secret = keep the previously-saved one (so region/bucket edits don't
+    # force re-typing the secret). Reject a first-time save without a secret.
+    secret = (payload.aws_secret_access_key or "").strip()
+    if not secret or _is_masked(secret):
+        prior = await db.platform_settings.find_one({"key": "aws_credentials"})
+        secret = ((prior or {}).get("value") or {}).get("aws_secret_access_key", "")
+        if not secret:
+            raise HTTPException(400, detail={"code": "secret_required",
+                                             "message": "AWS secret access key is required on first save."})
+    value["aws_secret_access_key"] = secret
+    if value.get("presign_ttl_seconds") is not None and not (60 <= value["presign_ttl_seconds"] <= 86400):
+        raise HTTPException(400, detail={"code": "ttl_out_of_range",
+                                         "message": "presign_ttl_seconds must be between 60 and 86400."})
     # Persist first so we can reload on restart even if head_bucket fails now.
     await db.platform_settings.update_one(
         {"key": "aws_credentials"},
@@ -2986,10 +3117,12 @@ async def put_aws_credentials(payload: AwsCredentialsIn,
     # Apply at runtime
     s3_presign.apply_runtime_credentials({
         "AWS_ACCESS_KEY_ID": payload.aws_access_key_id,
-        "AWS_SECRET_ACCESS_KEY": payload.aws_secret_access_key,
+        "AWS_SECRET_ACCESS_KEY": secret,
         "AWS_REGION": payload.aws_region,
         "AWS_S3_BUCKET": payload.aws_bucket_name,
         "AWS_PUBLIC_MEDIA_HOST": payload.aws_public_media_host or "",
+        **({"AWS_S3_PRESIGN_TTL_SECONDS": str(value["presign_ttl_seconds"])}
+           if value.get("presign_ttl_seconds") else {}),
     })
     # Best-effort connectivity test (do not fail the save on network hiccups).
     verify: Dict[str, object] = {"attempted": False}

@@ -83,7 +83,7 @@ export default function Products() {
         <Input placeholder={t("search")} value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-md" />
       </div>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      <div className="grid sm:grid-cols-2 md:grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
         {view.map((p) => (
           <div key={p.id} className="card-surface p-4">
             <div className="aspect-square bg-brand-bg rounded-xl mb-3 flex items-center justify-center text-3xl font-display font-bold text-brand-primary/40">
@@ -119,11 +119,8 @@ export default function Products() {
             <div><Label>Price</Label><Input data-testid="product-price" type="number" value={form.price || 0} onChange={(e) => setForm({ ...form, price: +e.target.value })} /></div>
             <div className="sm:col-span-2"><Label>Description</Label><Textarea value={form.description || ""} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
           </div>
-          <div className="pt-2 border-t border-brand-line">
-            <div className="text-xs text-brand-mute mb-2 uppercase tracking-wider">Custom Fields</div>
-            <CustomFieldsForm module="product" data={form.custom_data || {}}
-                              onChange={(cd) => setForm({ ...form, custom_data: cd })} />
-          </div>
+          <CustomFieldsForm heading="Custom Fields" module="product" data={form.custom_data || {}}
+                            onChange={(cd) => setForm({ ...form, custom_data: cd })} />
           <DialogFooter>
             <button onClick={() => setOpen(false)} className="px-4 py-2 rounded-lg border border-brand-line">Cancel</button>
             <button data-testid="save-product-btn" onClick={submit} className="btn-primary">Save</button>

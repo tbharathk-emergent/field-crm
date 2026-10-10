@@ -3,6 +3,7 @@ import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useApp, getLabel } from "@/context/AppContext";
+import { PageHeader, DataTable, StatusBadge } from "@/components/Layout/Page";
 
 const STATUS = ["new", "in_progress", "followup", "closed"];
 
@@ -33,48 +34,79 @@ export default function Enquiries() {
 
   const label = getLabel(tenant, "customer", "Customer");
 
+  const where = (e) => [e.mobile, [e.village, e.district].filter(Boolean).join(", ")].filter(Boolean).join(" · ");
+  const assign = (e, cls = "h-9 text-xs") => (
+    <Select value={e.assigned_employee_id || ""} onValueChange={(v) => upd(e.id, { assigned_employee_id: v })}>
+      <SelectTrigger className={cls}><SelectValue placeholder="Assign to..." /></SelectTrigger>
+      <SelectContent>{employees.map(emp => <SelectItem key={emp.id} value={emp.id}>{emp.name}</SelectItem>)}</SelectContent>
+    </Select>
+  );
+  const status = (e, cls = "h-9 text-xs") => (
+    <Select value={e.status} onValueChange={(v) => upd(e.id, { status: v })}>
+      <SelectTrigger className={cls}><SelectValue /></SelectTrigger>
+      <SelectContent>{STATUS.map(s => <SelectItem key={s} value={s} className="capitalize">{s.replace("_", " ")}</SelectItem>)}</SelectContent>
+    </Select>
+  );
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="font-display text-3xl font-bold">{label} Enquiries</h1>
-          <p className="text-brand-mute text-sm mt-1">{list.length} total</p>
-        </div>
+    <div className="space-y-4 lg:space-y-6">
+      <PageHeader title={`${label} Enquiries`} subtitle={`${view.length} of ${list.length} shown`}>
         <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-44" data-testid="enquiries-filter"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
             {STATUS.map(s => <SelectItem key={s} value={s} className="capitalize">{s.replace("_", " ")}</SelectItem>)}
           </SelectContent>
         </Select>
+      </PageHeader>
+
+      {/* Desktop: one table. Phones and tablets: a card per enquiry. */}
+      <div className="hidden xl:block">
+        <DataTable
+          testid="admin-enquiries-table"
+          rows={view}
+          empty={t("no_data")}
+          columns={[
+            { key: "who", header: label, cell: (e) => (
+              <div>
+                <div className="font-medium">{e.customer_name}</div>
+                {where(e) && <div className="text-xs text-brand-mute">{where(e)}</div>}
+              </div>
+            ) },
+            { key: "what", header: "Enquiry", className: "max-w-md", cell: (e) => (
+              <div>
+                {e.category && <div className="text-xs text-brand-primary font-medium">{e.category}</div>}
+                <div className="text-brand-mute line-clamp-2">{e.description || "—"}</div>
+              </div>
+            ) },
+            { key: "when", header: "Received", cell: (e) => (
+              <div className="whitespace-nowrap">
+                <div>{new Date(e.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</div>
+                <div className="text-xs text-brand-mute">via {e.source}</div>
+              </div>
+            ) },
+            { key: "state", header: t("status"), cell: (e) => <StatusBadge status={e.status} /> },
+            { key: "assign", header: "Assigned to", cell: (e) => assign(e, "h-9 text-xs w-44") },
+            { key: "status", header: "Update", cell: (e) => status(e, "h-9 text-xs w-36") },
+          ]}
+        />
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-4">
+      <div className="grid md:grid-cols-2 gap-4 xl:hidden">
         {view.map((e) => (
           <div key={e.id} className="card-surface p-4">
             <div className="flex items-start justify-between gap-2">
-              <div>
-                <div className="font-display font-semibold">{e.customer_name}</div>
-                <div className="text-xs text-brand-mute">{e.mobile} · {e.village}, {e.district}</div>
+              <div className="min-w-0">
+                <div className="font-display font-semibold truncate">{e.customer_name}</div>
+                {where(e) && <div className="text-xs text-brand-mute">{where(e)}</div>}
               </div>
-              <span className={`text-xs uppercase tracking-wider px-2 py-0.5 rounded-full font-semibold capitalize ${
-                e.status === "new" ? "bg-blue-100 text-blue-700" :
-                e.status === "in_progress" ? "bg-yellow-100 text-yellow-700" :
-                e.status === "followup" ? "bg-orange-100 text-orange-700" :
-                "bg-emerald-100 text-emerald-700"
-              }`}>{e.status.replace("_", " ")}</span>
+              <StatusBadge status={e.status} />
             </div>
             {e.category && <div className="text-xs text-brand-primary font-medium mt-2">{e.category}</div>}
             {e.description && <p className="text-sm mt-2 text-brand-mute">{e.description}</p>}
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <Select value={e.assigned_employee_id || ""} onValueChange={(v) => upd(e.id, { assigned_employee_id: v })}>
-                <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Assign to..." /></SelectTrigger>
-                <SelectContent>{employees.map(emp => <SelectItem key={emp.id} value={emp.id}>{emp.name}</SelectItem>)}</SelectContent>
-              </Select>
-              <Select value={e.status} onValueChange={(v) => upd(e.id, { status: v })}>
-                <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>{STATUS.map(s => <SelectItem key={s} value={s} className="capitalize">{s.replace("_", " ")}</SelectItem>)}</SelectContent>
-              </Select>
+              {assign(e)}
+              {status(e)}
             </div>
             <div className="text-xs text-brand-mute mt-2">{new Date(e.created_at).toLocaleString("en-IN")} · via {e.source}</div>
           </div>

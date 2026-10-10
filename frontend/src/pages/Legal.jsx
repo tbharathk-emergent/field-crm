@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { renderMarkdown } from "@/lib/markdown";
 
@@ -27,7 +27,11 @@ const KIND_TITLES = {
 
 export default function LegalPage() {
   const { kind, slug } = useParams();
+  const navigate = useNavigate();
   const [state, setState] = useState({ loading: true, doc: null, error: null });
+  // Return to wherever the user came from (employee app, shop, login…);
+  // fall back to the landing page on a direct open.
+  const goBack = () => (window.history.length > 1 ? navigate(-1) : navigate("/"));
 
   useEffect(() => {
     let cancelled = false;
@@ -54,9 +58,9 @@ export default function LegalPage() {
     <div className="min-h-screen bg-white" data-testid={`legal-page-${kind}`}>
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex items-center justify-between mb-6">
-          <Link to="/" className="text-sm text-brand-mute hover:underline" data-testid="legal-back-link">
+          <button onClick={goBack} className="text-sm text-brand-mute hover:underline" data-testid="legal-back-link">
             ← Back
-          </Link>
+          </button>
           <div className="text-xs uppercase tracking-widest text-brand-mute">Legal</div>
         </div>
 

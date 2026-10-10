@@ -104,7 +104,7 @@ export default function CropAdvisor() {
         )}
 
         {/* Hub grid */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <HubCard testid="ca-mycrops" icon={Sprout} label="My Crops" count={myCropDocs.length}
                     color="#27AE60" onClick={() => go("mycrops")} />
           <HubCard testid="ca-diseases" icon={Leaf} label="Diseases"

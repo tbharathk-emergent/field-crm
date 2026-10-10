@@ -6,7 +6,7 @@ import { AppProvider } from "@/context/AppContext";
 import { RequireAuth, TenantScope } from "@/components/Guards";
 import AdminShell from "@/components/Layout/AdminShell";
 import MobileShell from "@/components/Layout/MobileShell";
-import MobileAdminShell from "@/components/Layout/MobileAdminShell";
+import { useIsDesktop } from "@/lib/platform";
 
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
@@ -69,10 +69,18 @@ import CustAccount from "@/pages/Customer/Account";
 // Public legal (Phase 3) — Privacy / Terms / Refund / Shipping / About / Contact
 import LegalPage from "@/pages/Legal";
 
+// On desktop a top-right toast sits on top of the header's language switcher
+// and account controls, so toasts go bottom-right there; phones keep them at
+// the top, clear of the bottom tab bar.
+function AppToaster() {
+  const isDesktop = useIsDesktop();
+  return <Toaster position={isDesktop ? "bottom-right" : "top-right"} richColors closeButton />;
+}
+
 function App() {
   return (
     <AppProvider>
-      <Toaster position="top-right" richColors closeButton />
+      <AppToaster />
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Landing />} />
@@ -99,7 +107,9 @@ function App() {
             element={
               <TenantScope>
                 <RequireAuth roles={["tenant_admin"]}>
-                  <MobileAdminShell role="tenant_admin" />
+                  {/* AdminShell = desktop sidebar on wide web windows; it
+                      renders MobileAdminShell itself on phones + native. */}
+                  <AdminShell role="tenant_admin" />
                 </RequireAuth>
               </TenantScope>
             }
@@ -129,7 +139,7 @@ function App() {
             element={
               <TenantScope>
                 <RequireAuth roles={["manager"]}>
-                  <MobileAdminShell role="manager" />
+                  <AdminShell role="manager" />
                 </RequireAuth>
               </TenantScope>
             }

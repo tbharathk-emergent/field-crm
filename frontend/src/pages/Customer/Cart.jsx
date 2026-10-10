@@ -2,8 +2,9 @@ import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { Trash2, Plus, Minus, ShoppingBag, MessageSquare } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useApp } from "@/context/AppContext";
+import { PageHeader, Split, DataTable, inr } from "@/components/Layout/Page";
 
 const CART_KEY = "fc_cart";
 
@@ -68,52 +69,91 @@ export default function Cart() {
     finally { setSubmitting(false); }
   };
 
-  return (
-    <div className="space-y-3 pb-4">
-      <h1 className="font-display text-xl font-bold">{t("cart")}</h1>
-      {items.length === 0 ? (
-        <div className="card-surface p-8 text-center">
-          <ShoppingBag className="mx-auto text-brand-mute mb-2" size={36} />
-          <div className="text-brand-mute text-sm">Your cart is empty</div>
+  const stepper = (id, qty) => (
+    <div className="flex items-center gap-2">
+      <button aria-label="decrease" onClick={() => setQty(id, qty - 1)} className="w-7 h-7 rounded-lg border border-brand-line flex items-center justify-center hover:bg-brand-bg"><Minus size={12} /></button>
+      <span className="font-mono text-sm w-6 text-center">{qty}</span>
+      <button aria-label="increase" onClick={() => setQty(id, qty + 1)} className="w-7 h-7 rounded-lg border border-brand-line flex items-center justify-center hover:bg-brand-bg"><Plus size={12} /></button>
+      <button aria-label="remove" onClick={() => setQty(id, 0)} className="ml-2 text-brand-error"><Trash2 size={14} /></button>
+    </div>
+  );
+
+  // Sticky above the tab bar in the bottom-nav shell; a side panel on desktop.
+  const summary = (
+    <div className="card-surface p-4 lg:p-5 sticky bottom-20 desktop:static xl:desktop:sticky xl:desktop:top-24" data-testid="cart-summary">
+      <h2 className="hidden xl:block font-display font-semibold text-base mb-3">Order summary</h2>
+      {enquiryOnly ? (
+        <div className="mb-3 text-xs text-brand-secondary bg-brand-secondary/10 rounded-lg px-3 py-2">
+          Prices are not shown. Submit an enquiry and our team will contact you.
         </div>
       ) : (
         <>
-          {items.map(({ id, qty, product }) => (
-            <div key={id} className="card-surface p-3">
-              <div className="flex items-center justify-between">
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-sm truncate">{product.name}</div>
-                  <div className="text-xs text-brand-mute">
-                    {enquiryOnly ? `${qty} unit${qty === 1 ? "" : "s"}` : `₹${product.price} × ${qty}`}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => setQty(id, qty - 1)} className="w-7 h-7 rounded-lg border border-brand-line flex items-center justify-center"><Minus size={12} /></button>
-                  <span className="font-mono text-sm w-6 text-center">{qty}</span>
-                  <button onClick={() => setQty(id, qty + 1)} className="w-7 h-7 rounded-lg border border-brand-line flex items-center justify-center"><Plus size={12} /></button>
-                  <button onClick={() => setQty(id, 0)} className="ml-2 text-brand-error"><Trash2 size={14} /></button>
-                </div>
-              </div>
-              {!enquiryOnly && <div className="mt-1 text-right font-mono text-sm font-semibold">₹{Math.round(qty * product.price)}</div>}
-            </div>
-          ))}
-          <div className="card-surface p-4 sticky bottom-20">
-            {enquiryOnly ? (
-              <div className="mb-3 text-xs text-brand-secondary bg-brand-secondary/10 rounded-lg px-3 py-2">
-                Prices are not shown. Submit an enquiry and our team will contact you.
-              </div>
-            ) : (
-              <div className="flex justify-between mb-3">
-                <span className="text-brand-mute">{t("total")}</span>
-                <span className="font-display text-2xl font-bold">₹{total.toLocaleString("en-IN")}</span>
-              </div>
-            )}
-            <button data-testid="place-order-btn" onClick={place} disabled={submitting} className="btn-primary w-full h-12 inline-flex items-center justify-center gap-2">
-              {enquiryOnly && <MessageSquare size={16} />}
-              {submitting ? "..." : enquiryOnly ? "Send Enquiry" : t("place_order")}
-            </button>
+          <div className="hidden xl:flex justify-between text-sm text-brand-mute mb-2">
+            <span>Items</span><span>{items.reduce((s, i) => s + i.qty, 0)}</span>
+          </div>
+          <div className="flex justify-between items-baseline mb-3 xl:border-t xl:border-brand-line xl:pt-3">
+            <span className="text-brand-mute">{t("total")}</span>
+            <span className="font-display text-2xl font-bold">{inr(total)}</span>
           </div>
         </>
+      )}
+      <button data-testid="place-order-btn" onClick={place} disabled={submitting} className="btn-primary w-full h-12 inline-flex items-center justify-center gap-2">
+        {enquiryOnly && <MessageSquare size={16} />}
+        {submitting ? "..." : enquiryOnly ? "Send Enquiry" : t("place_order")}
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="space-y-3 lg:space-y-5 pb-4">
+      <PageHeader title={t("cart")} subtitle={items.length ? `${items.length} product${items.length === 1 ? "" : "s"}` : undefined}>
+        <Link to={`/t/${slug}/shop/catalogue`} className="btn-outline hidden lg:inline-flex">Continue shopping</Link>
+      </PageHeader>
+
+      {items.length === 0 ? (
+        <div className="card-surface p-8 lg:p-16 text-center">
+          <ShoppingBag className="mx-auto text-brand-mute mb-2" size={36} />
+          <div className="text-brand-mute text-sm">Your cart is empty</div>
+          <Link to={`/t/${slug}/shop/catalogue`} className="btn-primary mt-4" data-testid="cart-browse-btn">Browse {t("catalogue").toLowerCase()}</Link>
+        </div>
+      ) : (
+        <Split aside={summary}>
+          {/* Desktop: one table. Phones: a card per line. */}
+          <div className="hidden lg:block">
+            <DataTable
+              testid="cart-table"
+              rows={items}
+              columns={[
+                { key: "product", header: "Product", cell: ({ product }) => (
+                  <div>
+                    <div className="font-medium">{product.name}</div>
+                    {product.packing && <div className="text-xs text-brand-mute">{product.packing}</div>}
+                  </div>
+                ) },
+                ...(enquiryOnly ? [] : [{ key: "price", header: t("price"), align: "right", cell: ({ product }) => <span className="font-mono">{inr(product.price)}</span> }]),
+                { key: "qty", header: t("quantity"), cell: ({ id, qty }) => stepper(id, qty) },
+                ...(enquiryOnly ? [] : [{ key: "total", header: t("total"), align: "right", cell: ({ qty, product }) => <span className="font-mono font-semibold">{inr(qty * product.price)}</span> }]),
+              ]}
+            />
+          </div>
+
+          <div className="space-y-3 lg:hidden">
+            {items.map(({ id, qty, product }) => (
+              <div key={id} className="card-surface p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm truncate">{product.name}</div>
+                    <div className="text-xs text-brand-mute">
+                      {enquiryOnly ? `${qty} unit${qty === 1 ? "" : "s"}` : `₹${product.price} × ${qty}`}
+                    </div>
+                  </div>
+                  {stepper(id, qty)}
+                </div>
+                {!enquiryOnly && <div className="mt-1 text-right font-mono text-sm font-semibold">{inr(qty * product.price)}</div>}
+              </div>
+            ))}
+          </div>
+        </Split>
       )}
     </div>
   );

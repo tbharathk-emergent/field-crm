@@ -402,7 +402,7 @@ function PhotoEditor({ photos = [], onChange }) {
     try {
       const fd = new FormData();
       fd.append("file", f);
-      const res = await api.post("/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      const res = await api.post("/files/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
       onChange([...photos, { path: res.data.url || res.data.path, stage, label: stage }]);
     } catch { toast.error("Upload failed"); }
     finally { setUploading(false); }
@@ -443,7 +443,7 @@ function DocumentEditor({ documents = [], onChange }) {
     try {
       const fd = new FormData();
       fd.append("file", f);
-      const res = await api.post("/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      const res = await api.post("/files/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
       onChange([...documents, { name: f.name, path: res.data.url || res.data.path, doc_type: f.name.toLowerCase().endsWith(".pdf") ? "pdf" : "image", size_kb: Math.round(f.size / 1024) }]);
     } catch { toast.error("Upload failed"); }
     finally { setUploading(false); }

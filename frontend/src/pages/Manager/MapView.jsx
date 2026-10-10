@@ -59,8 +59,8 @@ export default function MapView() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="font-display text-3xl font-bold">GPS Tracking</h1>
-        <div className="flex gap-2">
+        <h1 className="font-display text-xl lg:text-3xl font-bold">GPS Tracking</h1>
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
           <div className="flex rounded-xl border border-brand-line overflow-hidden">
             <button data-testid="mode-history" onClick={() => setMode("history")}
               className={`px-3 py-1.5 text-xs font-medium ${mode === "history" ? "bg-brand-primary text-white" : "bg-white text-brand-ink"}`}>History</button>
@@ -72,10 +72,10 @@ export default function MapView() {
           {mode === "history" && (
             <>
               <Select value={employeeId} onValueChange={setEmployeeId}>
-                <SelectTrigger className="w-48"><SelectValue placeholder="Employee" /></SelectTrigger>
+                <SelectTrigger className="flex-1 min-w-[9rem] sm:flex-none sm:w-48"><SelectValue placeholder="Employee" /></SelectTrigger>
                 <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}</SelectContent>
               </Select>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-44" />
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="flex-1 min-w-[9rem] sm:flex-none sm:w-44" />
             </>
           )}
         </div>
@@ -102,7 +102,7 @@ export default function MapView() {
         </div>
       )}
 
-      <div className="card-surface p-2 h-[520px]">
+      <div className="card-surface p-2 h-[520px] lg:h-[calc(100vh-17rem)] lg:min-h-[520px]">
         <MapContainer center={center} zoom={11} style={{ height: "100%", width: "100%" }}>
           <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 

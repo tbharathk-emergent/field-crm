@@ -53,7 +53,10 @@ def apply_runtime_credentials(creds: Dict[str, str]) -> None:
             # Also mirror into env so any other module that reads env stays in sync.
             os.environ[k] = v
         else:
+            # Clear BOTH layers — otherwise a cleared key silently falls back to
+            # the stale os.environ copy until the next restart.
             _RUNTIME_OVERRIDE.pop(k, None)
+            os.environ.pop(k, None)
 
 
 def _get(key: str) -> str:

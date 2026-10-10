@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PageHeader, Split, Panel } from "@/components/Layout/Page";
 
 const TYPE_ICONS = { country: Globe, state: Building, district: MapPin, area: MapPin };
 const TYPE_ORDER = ["country", "state", "district", "area"];
@@ -81,20 +82,44 @@ export default function Areas() {
 
   const roots = tree.ROOT || [];
 
-  return (
-    <div className="space-y-6 max-w-3xl">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-3xl font-bold">Area Hierarchy</h1>
-          <p className="text-brand-mute text-sm mt-1">Country → State → District → Area</p>
-        </div>
-        <button data-testid="add-root-btn" onClick={() => openCreate(null)} className="btn-primary"><Plus size={16} /> Country</button>
-      </div>
+  const count = (type) => list.filter(a => a.type === type).length;
 
-      <div className="card-surface p-2">
-        {roots.length === 0 && <div className="text-center py-12 text-brand-mute text-sm">No areas yet. Start by adding a Country.</div>}
-        {roots.map(r => renderNode(r))}
-      </div>
+  return (
+    <div className="space-y-4 lg:space-y-6">
+      <PageHeader title="Area Hierarchy" subtitle="Country → State → District → Area">
+        <button data-testid="add-root-btn" onClick={() => openCreate(null)} className="btn-primary"><Plus size={16} /> Country</button>
+      </PageHeader>
+
+      <Split
+        aside={
+          <>
+            <Panel title="Summary">
+              <dl className="space-y-3 text-sm">
+                {TYPE_ORDER.map((type) => {
+                  const Icon = TYPE_ICONS[type];
+                  return (
+                    <div key={type} className="flex items-center justify-between">
+                      <dt className="flex items-center gap-2 text-brand-mute capitalize"><Icon size={14} /> {type === "country" ? "Countries" : `${type}s`}</dt>
+                      <dd className="font-display font-semibold">{count(type)}</dd>
+                    </div>
+                  );
+                })}
+              </dl>
+            </Panel>
+            <Panel title="How it works">
+              <p className="text-sm text-brand-mute">
+                Areas nest four levels deep. Assign employees and dealers to an area, and targets and
+                reports roll up through its district, state and country.
+              </p>
+            </Panel>
+          </>
+        }
+      >
+        <div className="card-surface p-2 lg:p-3">
+          {roots.length === 0 && <div className="text-center py-12 text-brand-mute text-sm">No areas yet. Start by adding a Country.</div>}
+          {roots.map(r => renderNode(r))}
+        </div>
+      </Split>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>

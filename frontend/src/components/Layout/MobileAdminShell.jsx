@@ -21,7 +21,9 @@ function buildNav(role, slug, tenant) {
         { to: "/super-admin/plans", icon: Tag, label: "Plans", key: "plans" },
         { to: "/super-admin/settings", icon: Settings, label: "Settings", key: "settings" },
       ],
-      more: [],
+      more: [
+        { to: "/super-admin/cloud", icon: Globe, label: "Cloud" },
+      ],
     };
   }
   if (role === "manager") {
@@ -93,7 +95,7 @@ export default function MobileAdminShell({ role }) {
     <div className="min-h-screen bg-brand-bg flex flex-col">
       {/* Top bar */}
       <header className="sticky top-0 z-30 bg-white border-b border-brand-line safe-pt">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3 justify-between">
+        <div className="max-w-2xl md:max-w-none mx-auto px-4 md:px-6 py-3 flex items-center gap-3 justify-between">
           <div className="flex items-center gap-2 min-w-0">
             {role === "super_admin" ? (
               <div className="w-9 h-9 rounded-xl bg-brand-primary flex items-center justify-center text-white font-display font-bold text-sm">FC</div>
@@ -122,15 +124,17 @@ export default function MobileAdminShell({ role }) {
       </header>
 
       {/* Content */}
-      <main className="flex-1 pb-24 animate-fade-up">
-        <div className="max-w-2xl mx-auto p-4">
+      {/* Phones get a comfortable reading column; tablets use the full width. */}
+      <main className="flex-1 pb-bottom-nav animate-fade-up">
+        <div className="max-w-2xl md:max-w-none mx-auto p-4 md:p-6">
           <Outlet />
         </div>
       </main>
 
       {/* Bottom nav */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-brand-line z-40 shadow-[0_-2px_10px_rgba(0,0,0,0.04)] safe-pb">
-        <div className="max-w-2xl mx-auto grid grid-cols-5">
+        {/* flex (not a fixed grid) so permission-filtered tabs never leave gaps */}
+        <div className="max-w-2xl mx-auto flex">
           {bottom.map((item) => {
             const Icon = item.icon;
             return (
@@ -140,7 +144,7 @@ export default function MobileAdminShell({ role }) {
                 end={item.end}
                 data-testid={`tab-${item.key}`}
                 className={({ isActive }) =>
-                  `flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition ${
+                  `flex-1 flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition ${
                     isActive ? "text-brand-primary" : "text-brand-mute"
                   }`
                 }
@@ -154,7 +158,7 @@ export default function MobileAdminShell({ role }) {
           <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
             <SheetTrigger asChild>
               <button data-testid="tab-more"
-                className="flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium text-brand-mute">
+                className="flex-1 flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium text-brand-mute">
                 <Menu size={20} />
                 <span>More</span>
               </button>
@@ -181,10 +185,28 @@ export default function MobileAdminShell({ role }) {
                   );
                 })}
               </div>
-              <div className="mt-6 pt-4 border-t border-brand-line">
+              <div className="mt-6 pt-4 border-t border-brand-line space-y-3">
                 <button onClick={onLogout} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-brand-line text-brand-error">
                   <LogOut size={16} /> {t("logout")}
                 </button>
+                {/* App-store compliance: profile (account deletion) and legal pages
+                    are reachable from every logged-in shell */}
+                <div className="flex items-center justify-center gap-4 text-xs text-brand-mute pb-1">
+                  {role !== "super_admin" && slug && (
+                    <button onClick={() => goto(`/t/${slug}/app/profile`)}
+                            className="hover:text-brand-primary hover:underline" data-testid="more-my-profile">
+                      My Profile
+                    </button>
+                  )}
+                  <button onClick={() => goto(slug ? `/t/${slug}/legal/privacy` : "/legal/privacy")}
+                          className="hover:text-brand-primary hover:underline" data-testid="more-legal-privacy">
+                    Privacy Policy
+                  </button>
+                  <button onClick={() => goto(slug ? `/t/${slug}/legal/terms` : "/legal/terms")}
+                          className="hover:text-brand-primary hover:underline" data-testid="more-legal-terms">
+                    Terms of Service
+                  </button>
+                </div>
               </div>
             </SheetContent>
           </Sheet>

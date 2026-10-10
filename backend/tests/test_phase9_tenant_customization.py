@@ -9,10 +9,14 @@ import os
 import pytest
 import requests
 
-BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/") if False else None
-# Frontend .env holds REACT_APP_BACKEND_URL, but backend tests read from frontend/.env
+# Prefer the env var (exported by the runner / set by conftest.py from
+# frontend/.env); fall back to reading frontend/.env relative to this repo.
 def _load_backend_url():
-    with open("/app/frontend/.env") as f:
+    url = os.environ.get("REACT_APP_BACKEND_URL", "").strip()
+    if url:
+        return url.rstrip("/")
+    env_file = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", ".env")
+    with open(env_file) as f:
         for line in f:
             if line.startswith("REACT_APP_BACKEND_URL"):
                 return line.split("=", 1)[1].strip().strip('"').rstrip("/")

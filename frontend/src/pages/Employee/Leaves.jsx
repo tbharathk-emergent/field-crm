@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PageHeader, DataTable } from "@/components/Layout/Page";
 
 const STATUS_COLOR = {
   pending: { bg: "#FEF3C7", fg: "#92400E", icon: Clock },
@@ -33,38 +34,60 @@ export default function EmpLeaves() {
     } catch (e) { toast.error(e?.response?.data?.detail || "Failed"); }
   };
 
+  const badge = (l) => {
+    const sc = STATUS_COLOR[l.status] || STATUS_COLOR.pending;
+    const Icon = sc.icon;
+    return (
+      <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-semibold inline-flex items-center gap-1 whitespace-nowrap"
+            style={{ background: sc.bg, color: sc.fg }}>
+        <Icon size={10} /> {l.status}
+      </span>
+    );
+  };
+
   return (
-    <div className="space-y-3 pb-4">
-      <div className="flex items-center justify-between">
-        <h1 className="font-display text-xl font-bold">My Leaves</h1>
-        <button data-testid="apply-leave-btn" onClick={() => setOpen(true)} className="btn-primary text-sm"><Plus size={14} /> Apply</button>
+    <div className="space-y-3 lg:space-y-5 pb-4">
+      <PageHeader title="My Leaves" subtitle={list.length ? `${list.length} request${list.length === 1 ? "" : "s"}` : undefined}>
+        <button data-testid="apply-leave-btn" onClick={() => setOpen(true)} className="btn-primary text-sm"><Plus size={14} /> <span>Apply<span className="hidden lg:inline"> for leave</span></span></button>
+      </PageHeader>
+
+      {/* Desktop: one table. Phones: a card per request. */}
+      <div className="hidden lg:block">
+        <DataTable
+          testid="leaves-table"
+          rows={list}
+          empty="No leaves yet"
+          columns={[
+            { key: "type", header: "Type", cell: (l) => <span className="font-medium capitalize">{l.leave_type}</span> },
+            { key: "dates", header: "Dates", cell: (l) => <span className="whitespace-nowrap">{l.from_date} → {l.to_date}</span> },
+            { key: "days", header: "Days", align: "right", cell: (l) => <span className="font-mono">{l.days}</span> },
+            { key: "reason", header: "Reason", cell: (l) => <span className="text-brand-mute">{l.reason || "—"}</span> },
+            { key: "status", header: "Status", cell: badge },
+            { key: "by", header: "Reviewed by", cell: (l) => l.approver_name
+              ? <span className="text-brand-mute">{l.approver_name}{l.approver_comments ? ` · "${l.approver_comments}"` : ""}</span>
+              : "—" },
+          ]}
+        />
       </div>
 
-      <div className="space-y-2">
-        {list.map(l => {
-          const sc = STATUS_COLOR[l.status] || STATUS_COLOR.pending;
-          const Icon = sc.icon;
-          return (
-            <div key={l.id} className="card-surface p-3">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-sm font-medium capitalize">{l.leave_type} leave</div>
-                  <div className="text-xs text-brand-mute">{l.from_date} → {l.to_date} ({l.days}d)</div>
-                  {l.reason && <div className="text-xs text-brand-mute mt-1">{l.reason}</div>}
-                </div>
-                <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-semibold flex items-center gap-1"
-                      style={{ background: sc.bg, color: sc.fg }}>
-                  <Icon size={10} /> {l.status}
-                </span>
+      <div className="space-y-2 lg:hidden">
+        {list.map(l => (
+          <div key={l.id} className="card-surface p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-sm font-medium capitalize">{l.leave_type} leave</div>
+                <div className="text-xs text-brand-mute">{l.from_date} → {l.to_date} ({l.days}d)</div>
+                {l.reason && <div className="text-xs text-brand-mute mt-1">{l.reason}</div>}
               </div>
-              {l.approver_name && (
-                <div className="mt-2 pt-2 border-t border-brand-line text-[11px] text-brand-mute">
-                  by {l.approver_name}{l.approver_comments ? ` · "${l.approver_comments}"` : ""}
-                </div>
-              )}
+              {badge(l)}
             </div>
-          );
-        })}
+            {l.approver_name && (
+              <div className="mt-2 pt-2 border-t border-brand-line text-[11px] text-brand-mute">
+                by {l.approver_name}{l.approver_comments ? ` · "${l.approver_comments}"` : ""}
+              </div>
+            )}
+          </div>
+        ))}
         {list.length === 0 && <div className="text-center text-brand-mute py-8 text-sm">No leaves yet</div>}
       </div>
 

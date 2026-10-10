@@ -90,10 +90,16 @@ export default function Login() {
         await _sleep(1500);
         res = await attempt();
       }
-      setMockOtp(res.data.mock_otp);
+      // In mock mode the backend exposes the OTP; with a real SMS provider
+      // (Pingbix) it does not — show a normal "sent" message instead.
+      setMockOtp(res.data.mock_otp || null);
       setStep("otp");
       setResendIn(30);
-      toast.success(`OTP sent via ${channel.toUpperCase()} (mock: ${res.data.mock_otp})`);
+      if (res.data.mock_otp) {
+        toast.success(`OTP sent via ${channel.toUpperCase()} (mock: ${res.data.mock_otp})`);
+      } else {
+        toast.success(`OTP sent via ${channel.toUpperCase()} to +91 ${phone}`);
+      }
     } catch (e) {
       // Surface the backend reason so users see the real cause instead of a generic "Failed to send OTP".
       // Also logs to console for support triage.
@@ -267,6 +273,17 @@ export default function Login() {
               >
                 {loading ? "..." : t("send_otp")}
               </button>
+
+              <p className="text-[11px] text-brand-mute text-center">
+                By continuing you agree to our{" "}
+                <Link to={slug ? `/t/${slug}/legal/terms` : "/legal/terms"} className="text-brand-primary hover:underline" data-testid="login-terms-link">
+                  Terms of Service
+                </Link>{" "}
+                and{" "}
+                <Link to={slug ? `/t/${slug}/legal/privacy` : "/legal/privacy"} className="text-brand-primary hover:underline" data-testid="login-privacy-link">
+                  Privacy Policy
+                </Link>.
+              </p>
 
               {/* Demo logins */}
               {creds && (

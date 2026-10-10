@@ -1,0 +1,46 @@
+{
+  "tenant": {
+    "id": "456db735-e85d-4b70-8767-53caf9afc43d",
+    "slug": "demo",
+    "name": "Akshara Agro",
+    "business_type": "Agriculture",
+    "default_language": "en",
+    "theme": {
+      "primary": "#2C5E43",
+      "secondary": "#D35400",
+      "primary_hover": "#1e422f"
+    },
+    "labels": {
+      "customer": "Customer",
+      "customer_plural": "Customers",
+      "dealer": "Dealer",
+      "dealer_plural": "Dealers"
+    },
+    "logo_path": "fieldcrm/platform/tenant_logo/b31461d327c4423a9fb90d41be6b9f99.png",
+    "custom_domain": null
+  },
+  "logo": {
+    "mime": "image/png",
+    "base64": "<redacted>"
+  },
+  "firebase": {
+    "android": {
+      "app_id": "1:1059273854817:android:a1043c75fc05c4bc1bff20",
+      "package_name": "in.localappstore.fieldcrm.demo",
+      "mode": "auto",
+      "config_json": "<690 bytes>"
+    },
+    "ios": {
+      "app_id": "1:1059273854817:ios:bca1555c0d34c6921bff20",
+      "bundle_id": "in.localappstore.fieldcrm.demo",
+      "mode": "auto",
+      "config_plist": "<892 bytes>"
+    }
+  },
+  "server": {
+    "root_domain": "fieldcrm.localappstore.in",
+    "host": "demo.fieldcrm.localappstore.in",
+    "url": "https://demo.fieldcrm.localappstore.in"
+  },
+  "generated_at": "2026-07-13T04:22:22.097449+00:00"
+}

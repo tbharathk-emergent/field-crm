@@ -44,6 +44,7 @@ export default function CustomFields() {
     if (m === "dealer") return getLabel(tenant, "dealer_plural", "Dealers");
     if (m === "customer") return getLabel(tenant, "customer_plural", "Customers");
     if (m === "product") return getLabel(tenant, "product_plural", "Products");
+    if (m === "enquiry") return "Enquiries";
     return m.charAt(0).toUpperCase() + m.slice(1) + "s";
   };
 

@@ -82,15 +82,15 @@ export default function Branding() {
   };
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6">
       <div>
         <h1 className="font-display text-3xl font-bold">Branding & Configuration</h1>
         <p className="text-brand-mute text-sm mt-1">Make this app yours — logo, colors, labels & language.</p>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start">
         {/* Form */}
-        <div className="lg:col-span-2 space-y-5">
+        <div className="min-w-0 space-y-5">
           <div className="card-surface p-5 space-y-4">
             <h2 className="font-display font-semibold">Identity</h2>
             <div className="grid sm:grid-cols-2 gap-4">
@@ -223,8 +223,8 @@ export default function Branding() {
         </div>
 
         {/* Live Preview */}
-        <div className="space-y-4">
-          <div className="card-surface p-5 sticky top-24">
+        <div className="space-y-4 xl:sticky xl:top-24">
+          <div className="card-surface p-5">
             <div className="flex items-center gap-2 mb-3"><Eye size={16} /><h3 className="font-display font-semibold">Live Preview</h3></div>
             <div className="rounded-2xl border border-brand-line overflow-hidden">
               <div className="p-4" style={{ background: form.theme.primary }}>

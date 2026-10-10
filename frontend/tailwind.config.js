@@ -35,16 +35,19 @@ module.exports = {
           '1': 'hsl(var(--chart-1))', '2': 'hsl(var(--chart-2))', '3': 'hsl(var(--chart-3))',
           '4': 'hsl(var(--chart-4))', '5': 'hsl(var(--chart-5))',
         },
+        // Channel form ("r g b") so opacity modifiers such as bg-brand-primary/10
+        // generate real CSS. The -rgb variables mirror the hex ones in index.css
+        // and are kept in sync at runtime by applyTenantTheme().
         brand: {
-          primary: 'var(--brand-primary, #2C5E43)',
-          'primary-hover': 'var(--brand-primary-hover, #1e422f)',
-          secondary: 'var(--brand-secondary, #D35400)',
-          'secondary-hover': 'var(--brand-secondary-hover, #a84300)',
-          surface: 'var(--brand-surface, #FFFFFF)',
-          bg: 'var(--brand-bg, #F9F8F6)',
-          ink: 'var(--brand-ink, #1C2833)',
-          mute: 'var(--brand-mute, #566573)',
-          line: 'var(--brand-line, #E5E7EB)',
+          primary: 'rgb(var(--brand-primary-rgb, 44 94 67) / <alpha-value>)',
+          'primary-hover': 'rgb(var(--brand-primary-hover-rgb, 30 66 47) / <alpha-value>)',
+          secondary: 'rgb(var(--brand-secondary-rgb, 211 84 0) / <alpha-value>)',
+          'secondary-hover': 'rgb(var(--brand-secondary-hover-rgb, 168 67 0) / <alpha-value>)',
+          surface: 'rgb(var(--brand-surface-rgb, 255 255 255) / <alpha-value>)',
+          bg: 'rgb(var(--brand-bg-rgb, 249 248 246) / <alpha-value>)',
+          ink: 'rgb(var(--brand-ink-rgb, 28 40 51) / <alpha-value>)',
+          mute: 'rgb(var(--brand-mute-rgb, 86 101 115) / <alpha-value>)',
+          line: 'rgb(var(--brand-line-rgb, 229 231 235) / <alpha-value>)',
           success: '#27AE60',
           warning: '#F1C40F',
           error: '#E74C3C',
@@ -63,5 +66,15 @@ module.exports = {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [
+    require("tailwindcss-animate"),
+    // `desktop:` follows the active shell (sidebar web shell), not just the
+    // viewport: lib/platform.js sets html.is-desktop only on wide web windows,
+    // never inside the native apps. Use it for anything tied to the shell
+    // itself (sticky offsets, fixed bars); use the normal breakpoints for
+    // content that should simply grow with the available width.
+    require("tailwindcss/plugin")(({ addVariant }) => {
+      addVariant("desktop", "html.is-desktop &");
+    }),
+  ],
 };

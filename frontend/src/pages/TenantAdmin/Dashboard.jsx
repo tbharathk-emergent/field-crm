@@ -7,6 +7,7 @@ import {
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { api } from "@/lib/api";
 import { useApp, getLabel } from "@/context/AppContext";
+import { PageHeader } from "@/components/Layout/Page";
 
 const Kpi = ({ icon: Icon, label, value, accent, testid, to }) => (
   <Link to={to} data-testid={testid} className="card-surface p-4 hover:shadow-md active:scale-[0.98] transition-all block">
@@ -36,13 +37,13 @@ export default function AdminDashboard() {
   const base = `/t/${slug}/admin`;
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="font-display text-2xl font-bold">Hi, {tenant?.name ? tenant.name.split(" ")[0] : "Admin"}</h1>
-        <p className="text-brand-mute text-xs mt-0.5">Tap any tile to drill in</p>
-      </div>
+    <div className="space-y-5 lg:space-y-6">
+      <PageHeader
+        title={`Hi, ${tenant?.name ? tenant.name.split(" ")[0] : "Admin"}`}
+        subtitle="Select any tile to drill in"
+      />
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3 lg:gap-4">
         <Kpi icon={Users} label="Staff" value={fmt(k.employees)} accent="#2C5E43"
              testid="kpi-employees" to={`${base}/employees`} />
         <Kpi icon={ShoppingBag} label={getLabel(tenant, "dealer_plural", "Dealers")}
@@ -74,9 +75,11 @@ export default function AdminDashboard() {
              testid="kpi-leaves" to={`${base}/leaves`} />
       </div>
 
-      <div className="card-surface p-4">
+      {/* Trend chart beside the leaderboard once there is room. */}
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3 xl:gap-6">
+      <div className="card-surface p-4 lg:p-5 xl:col-span-2">
         <h2 className="font-display text-base font-semibold mb-3">Sales — Last 7 days</h2>
-        <div className="h-48">
+        <div className="h-48 lg:h-72">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data?.sales_trend || []}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
@@ -89,7 +92,7 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      <div className="card-surface p-4">
+      <div className="card-surface p-4 lg:p-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-display text-base font-semibold">Top Employees</h2>
           <Link to={`${base}/reports`} className="text-xs text-brand-primary">All →</Link>
@@ -108,6 +111,7 @@ export default function AdminDashboard() {
             <div className="text-sm text-brand-mute">{t("no_data")}</div>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

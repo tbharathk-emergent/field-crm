@@ -5,12 +5,38 @@ import { registerPushNotifications, unregisterPushNotifications } from "@/lib/pu
 
 const AppContext = createContext(null);
 
+// "r g b" channels for a CSS colour, so Tailwind's opacity modifiers
+// (bg-brand-primary/10 …) follow the runtime tenant theme.
+function toChannels(color) {
+  const hex = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(color).trim());
+  if (hex) {
+    let h = hex[1];
+    if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+    const n = parseInt(h, 16);
+    return `${(n >> 16) & 255} ${(n >> 8) & 255} ${n & 255}`;
+  }
+  // Any other CSS colour syntax: let the browser resolve it.
+  const probe = document.createElement("span");
+  probe.style.color = color;
+  if (!probe.style.color || !document.body) return null;
+  document.body.appendChild(probe);
+  const m = /rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)/.exec(getComputedStyle(probe).color);
+  probe.remove();
+  return m ? `${m[1]} ${m[2]} ${m[3]}` : null;
+}
+
 function applyTenantTheme(theme) {
   if (!theme) return;
   const root = document.documentElement;
-  if (theme.primary) root.style.setProperty("--brand-primary", theme.primary);
-  if (theme.primary_hover) root.style.setProperty("--brand-primary-hover", theme.primary_hover);
-  if (theme.secondary) root.style.setProperty("--brand-secondary", theme.secondary);
+  const set = (name, value) => {
+    if (!value) return;
+    root.style.setProperty(`--brand-${name}`, value);
+    const channels = toChannels(value);
+    if (channels) root.style.setProperty(`--brand-${name}-rgb`, channels);
+  };
+  set("primary", theme.primary);
+  set("primary-hover", theme.primary_hover);
+  set("secondary", theme.secondary);
 }
 
 export function AppProvider({ children }) {

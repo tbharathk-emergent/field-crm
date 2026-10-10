@@ -150,11 +150,8 @@ export default function Customers() {
               </Select>
             </div>
           </div>
-          <div className="pt-2 border-t border-brand-line">
-            <div className="text-xs text-brand-mute mb-2 uppercase tracking-wider">Custom Fields</div>
-            <CustomFieldsForm module="customer" data={form.custom_data || {}}
-                              onChange={(cd) => setForm({ ...form, custom_data: cd })} />
-          </div>
+          <CustomFieldsForm heading="Custom Fields" module="customer" data={form.custom_data || {}}
+                            onChange={(cd) => setForm({ ...form, custom_data: cd })} />
           <DialogFooter>
             <button onClick={() => setOpen(false)} className="px-4 py-2 rounded-lg border border-brand-line">Cancel</button>
             <button data-testid="save-customer-btn" onClick={submit} className="btn-primary">Save</button>
